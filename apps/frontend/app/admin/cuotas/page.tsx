@@ -158,9 +158,9 @@ export default function CuotasPage() {
   };
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Cuotas y Pagos</h1>
+        <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Cuotas y Pagos</h1>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setGeneratorOpen(true)}>
             Generar cuotas

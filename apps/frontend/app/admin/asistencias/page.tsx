@@ -74,9 +74,9 @@ export default function AsistenciasPage() {
   };
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Asistencia</h1>
+        <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Asistencia</h1>
         <Button onClick={() => setTakerOpen(true)}>Tomar asistencia</Button>
       </div>
 

@@ -78,9 +78,9 @@ export default function CajaPage() {
     value.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Caja</h1>
+        <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Caja</h1>
         <Button onClick={() => setModalOpen(true)}>Nuevo movimiento</Button>
       </div>
 

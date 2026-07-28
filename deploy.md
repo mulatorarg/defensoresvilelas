@@ -177,4 +177,13 @@ cd apps/backend
 cd apps/frontend && npm run dev    # → http://localhost:3000
 ```
 
+
+En el VPS, desde la carpeta del proyecto:
+
+```sh
+cd /home/deploy/defensores
+docker compose exec app python -m app.seed           # config del club + admin
+docker compose exec app python -m app.seed --demo    # + contenido de ejemplo
+```
+
 Credenciales demo: `admin@clubes.local / admin123`.

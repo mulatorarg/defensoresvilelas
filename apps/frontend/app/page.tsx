@@ -192,7 +192,7 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#05070e] text-white selection:bg-primary/40">
       {/* ===== Header ===== */}
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/[0.06] bg-[#05070e]/70 backdrop-blur-xl">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/6 bg-[#05070e]/70 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
           <a href="#" className="flex items-center gap-3">
             {tenant.logoUrl ? (
@@ -234,7 +234,7 @@ export default function HomePage() {
             </Link>
             <Link
               href="/login/"
-              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-2 text-[13px] font-semibold tracking-wide text-white/90 transition-all hover:border-white/40 hover:bg-white/10"
+              className="rounded-full border border-white/15 bg-white/4 px-5 py-2 text-[13px] font-semibold tracking-wide text-white/90 transition-all hover:border-white/40 hover:bg-white/10"
             >
               Acceso
             </Link>
@@ -249,7 +249,7 @@ export default function HomePage() {
           </button>
         </div>
         {menuOpen && (
-          <nav className="flex flex-col gap-4 border-t border-white/[0.06] bg-[#05070e]/95 px-5 py-5 text-sm font-medium text-white/70 md:hidden">
+          <nav className="flex flex-col gap-4 border-t border-white/6 bg-[#05070e]/95 px-5 py-5 text-sm font-medium text-white/70 md:hidden">
             {NAV_LINKS.map((l) => (
               <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)}>
                 {l.label}
@@ -266,7 +266,7 @@ export default function HomePage() {
       </header>
 
       {/* ===== Hero ===== */}
-      <section className="relative flex min-h-[100svh] items-center overflow-hidden">
+      <section className="relative flex min-h-svh items-center overflow-hidden">
         {/* foto de fondo con Ken Burns + overlays */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div
@@ -281,8 +281,8 @@ export default function HomePage() {
                 'radial-gradient(ellipse 70% 55% at 50% 42%, color-mix(in srgb, var(--color-primary) 28%, transparent), transparent 75%)',
             }}
           />
-          <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-b from-transparent to-[#05070e]" />
-          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-t from-transparent to-[#05070e]/80" />
+          <div className="absolute inset-x-0 bottom-0 h-56 bg-linear-to-b from-transparent to-[#05070e]" />
+          <div className="absolute inset-x-0 top-0 h-24 bg-linear-to-t from-transparent to-[#05070e]/80" />
         </div>
 
         <div className="relative mx-auto w-full max-w-6xl px-5 pb-24 pt-36 text-center">
@@ -366,7 +366,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== Marquee ===== */}
-      <div className="relative overflow-hidden border-y border-white/[0.07] bg-white/[0.02] py-5">
+      <div className="relative overflow-hidden border-y border-white/7 bg-white/2 py-5">
         <div className="marquee-track items-center gap-14 pr-14">
           {[0, 1].map((copy) => (
             <div key={copy} className="flex shrink-0 items-center gap-14" aria-hidden={copy === 1}>
@@ -403,7 +403,7 @@ export default function HomePage() {
             {disciplines.map((d, i) => (
               <article
                 key={d.id}
-                className="reveal group relative overflow-hidden rounded-3xl border border-white/[0.08] bg-white/[0.03] transition-all duration-300 hover:-translate-y-1.5 hover:border-white/20 hover:shadow-[0_25px_60px_-25px_var(--color-primary)]"
+                className="reveal group relative overflow-hidden rounded-3xl border border-white/8 bg-white/3 transition-all duration-300 hover:-translate-y-1.5 hover:border-white/20 hover:shadow-[0_25px_60px_-25px_var(--color-primary)]"
                 style={{ transitionDelay: `${i * 0.08}s` }}
               >
                 <div className="relative h-36 overflow-hidden">
@@ -411,7 +411,7 @@ export default function HomePage() {
                     className="h-full w-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
                     style={{ backgroundImage: `url(${sportPhoto(d.name)})` }}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a0d18] via-[#0a0d18]/30 to-transparent" />
+                  <div className="absolute inset-0 bg-linear-to-t from-[#0a0d18] via-[#0a0d18]/30 to-transparent" />
                   <span className="absolute bottom-3 left-4 text-2xl drop-shadow">{d.icon}</span>
                 </div>
                 <div className="p-6 pt-4">
@@ -421,7 +421,7 @@ export default function HomePage() {
                       {d.description}
                     </p>
                   )}
-                  <ul className="mt-5 space-y-2.5 border-t border-white/[0.07] pt-5">
+                  <ul className="mt-5 space-y-2.5 border-t border-white/7 pt-5">
                     {d.categories.map((c) => (
                       <li key={c.id} className="text-[13px]">
                         <div className="flex items-baseline justify-between gap-2">
@@ -451,7 +451,7 @@ export default function HomePage() {
           {LIFE_PHOTOS.map((photo, i) => (
             <div
               key={photo}
-              className={`reveal group relative overflow-hidden rounded-3xl border border-white/[0.08] ${
+              className={`reveal group relative overflow-hidden rounded-3xl border border-white/8 ${
                 i === 0 ? 'md:row-span-2 h-64 md:h-full' : 'h-64'
               }`}
               style={{ transitionDelay: `${i * 0.1}s` }}
@@ -460,9 +460,9 @@ export default function HomePage() {
                 className="h-full w-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
                 style={{ backgroundImage: `url(${photo})` }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#05070e]/80 via-transparent to-transparent" />
+              <div className="absolute inset-0 bg-linear-to-t from-[#05070e]/80 via-transparent to-transparent" />
               {i === 0 && (
-                <p className="absolute bottom-6 left-6 max-w-[240px] font-display text-xl font-bold leading-snug">
+                <p className="absolute bottom-6 left-6 max-w-60 font-display text-xl font-bold leading-snug">
                   La vida en el club, todos los días
                 </p>
               )}
@@ -475,7 +475,7 @@ export default function HomePage() {
       {events.length > 0 && (
         <section
           id="agenda"
-          className="relative scroll-mt-24 border-y border-white/[0.06] bg-white/[0.015] py-28"
+          className="relative scroll-mt-24 border-y border-white/6 bg-white/1.5 py-28"
         >
           <div className="mx-auto max-w-6xl px-5">
             <SectionHeader index="02" title="Agenda" subtitle="Lo que se viene en el club" />
@@ -485,7 +485,7 @@ export default function HomePage() {
                 return (
                   <article
                     key={e.id}
-                    className="reveal flex items-center gap-6 rounded-3xl border border-white/[0.08] bg-white/[0.03] p-6 transition-colors hover:border-white/20"
+                    className="reveal flex items-center gap-6 rounded-3xl border border-white/8 bg-white/3 p-6 transition-colors hover:border-white/20"
                     style={{ transitionDelay: `${i * 0.08}s` }}
                   >
                     <div
@@ -528,7 +528,7 @@ export default function HomePage() {
             {news.map((n, i) => (
               <article
                 key={n.id}
-                className="reveal group flex flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-white/[0.03] transition-all duration-300 hover:-translate-y-1.5 hover:border-white/20"
+                className="reveal group flex flex-col overflow-hidden rounded-3xl border border-white/8 bg-white/3 transition-all duration-300 hover:-translate-y-1.5 hover:border-white/20"
                 style={{ transitionDelay: `${i * 0.08}s` }}
               >
                 <div className="relative h-44 overflow-hidden">
@@ -538,7 +538,7 @@ export default function HomePage() {
                       backgroundImage: `url(${n.imageUrl || NEWS_PHOTOS[i % NEWS_PHOTOS.length]})`,
                     }}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a0d18]/70 to-transparent" />
+                  <div className="absolute inset-0 bg-linear-to-t from-[#0a0d18]/70 to-transparent" />
                   <span className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/90 backdrop-blur">
                     {formatDate(n.publishedAt)}
                   </span>
@@ -560,15 +560,15 @@ export default function HomePage() {
       {/* ===== Tienda ===== */}
       <section className="mx-auto max-w-6xl px-5 pb-28">
         <div
-          className="reveal rounded-[2rem] p-[1px]"
+          className="reveal rounded-4xl p-px"
           style={{
             backgroundImage:
               'linear-gradient(120deg, color-mix(in srgb, var(--color-primary) 60%, transparent), rgba(255,255,255,0.08), color-mix(in srgb, var(--color-secondary) 60%, transparent))',
           }}
         >
-          <div className="relative overflow-hidden rounded-[calc(2rem-1px)] bg-[#080b16] px-8 py-14 text-center md:px-16">
+          <div className="relative overflow-hidden rounded-[calc(var(--radius-4xl)-1px)] bg-[#080b16] px-8 py-14 text-center md:px-16">
             <div
-              className="pointer-events-none absolute -top-32 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full opacity-20 blur-[90px]"
+              className="pointer-events-none absolute -top-32 left-1/2 h-64 w-xl -translate-x-1/2 rounded-full opacity-20 blur-[90px]"
               style={{ background: 'var(--color-primary)' }}
             />
             <p className="relative mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/40">
@@ -581,7 +581,7 @@ export default function HomePage() {
               Camisetas, indumentaria y productos oficiales, con pago online
               mediante Mercado Pago y retiro en sede.
             </p>
-            <span className="relative mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-6 py-2.5 text-xs font-bold uppercase tracking-[0.25em] text-white/70">
+            <span className="relative mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-6 py-2.5 text-xs font-bold uppercase tracking-[0.25em] text-white/70">
               <span
                 className="animate-pulse-dot h-1.5 w-1.5 rounded-full"
                 style={{ background: 'var(--color-primary)' }}
@@ -593,7 +593,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== Asociate ===== */}
-      <section id="asociate" className="relative scroll-mt-24 border-t border-white/[0.06] py-28">
+      <section id="asociate" className="relative scroll-mt-24 border-t border-white/6 py-28">
         <div className="mx-auto max-w-6xl px-5">
           <div className="grid gap-14 lg:grid-cols-2">
             <div>
@@ -611,7 +611,7 @@ export default function HomePage() {
                 ].map(([icon, title, desc], i) => (
                   <div
                     key={title}
-                    className="reveal flex items-start gap-5 rounded-3xl border border-white/[0.08] bg-white/[0.03] p-6 transition-colors hover:border-white/20"
+                    className="reveal flex items-start gap-5 rounded-3xl border border-white/8 bg-white/3 p-6 transition-colors hover:border-white/20"
                     style={{ transitionDelay: (i * 0.1) + 's' }}
                   >
                     <span className="text-2xl">{icon}</span>
@@ -632,7 +632,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== Footer ===== */}
-      <footer className="border-t border-white/[0.06] py-12">
+      <footer className="border-t border-white/6 py-12">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 px-5 text-[13px] text-white/35 md:flex-row">
           <div className="flex items-center gap-3">
             {tenant.logoUrl ? (

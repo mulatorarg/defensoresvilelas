@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { clearSession, getUser } from '@/lib/auth';
 import { getPublicClub } from '@/lib/api';
 import AuthGuard from '@/components/AuthGuard';
+import { FeedbackProvider } from '@/components/ui/Feedback';
 
 const ICONS: Record<string, string> = {
   dashboard: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
@@ -23,7 +24,7 @@ const ICONS: Record<string, string> = {
     'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
 };
 
-function Icon({ name, className = 'h-[18px] w-[18px]' }: { name: string; className?: string }) {
+function Icon({ name, className = 'h-4.5 w-4.5' }: { name: string; className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
       <path d={ICONS[name]} />
@@ -86,7 +87,7 @@ export default function AdminLayout({
   const sidebar = (
     <div className="flex h-full flex-col bg-[#0a1410] text-white">
       {/* Club */}
-      <div className="flex items-center gap-3 border-b border-white/[0.06] px-5 py-5">
+      <div className="flex items-center gap-3 border-b border-white/6 px-5 py-5">
         {club.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={club.logoUrl} alt="" className="h-10 w-10 object-contain" />
@@ -110,8 +111,8 @@ export default function AdminLayout({
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
           const linkClass = active
-            ? 'bg-white/[0.07] text-white'
-            : 'text-white/50 hover:bg-white/[0.04] hover:text-white';
+            ? 'bg-white/7 text-white'
+            : 'text-white/50 hover:bg-white/4 hover:text-white';
           const iconClass = active
             ? 'text-primary'
             : 'text-white/40 group-hover:text-white/70';
@@ -141,8 +142,8 @@ export default function AdminLayout({
       </nav>
 
       {/* Usuario */}
-      <div className="border-t border-white/[0.06] p-4">
-        <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-3">
+      <div className="border-t border-white/6 p-4">
+        <div className="flex items-center gap-3 rounded-xl bg-white/4 p-3">
           <span
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-display text-xs font-bold text-white"
             style={{
@@ -172,6 +173,7 @@ export default function AdminLayout({
 
   return (
     <AuthGuard>
+      <FeedbackProvider>
       <div className="min-h-screen bg-[#f4f6f5]">
         {/* Sidebar desktop */}
         <aside className="fixed left-0 top-0 z-40 hidden h-full w-64 lg:block">
@@ -209,6 +211,7 @@ export default function AdminLayout({
 
         <main className="px-5 pb-12 pt-20 lg:ml-64 lg:px-10 lg:pt-8">{children}</main>
       </div>
+      </FeedbackProvider>
     </AuthGuard>
   );
 }

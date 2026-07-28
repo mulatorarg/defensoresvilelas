@@ -23,7 +23,7 @@ interface Props {
 }
 
 const inputClass =
-  'w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-primary/60 focus:bg-white/[0.08]';
+  'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/30 outline-hidden transition-colors focus:border-primary/60 focus:bg-white/8';
 
 const formatMoney = (value: number) =>
   value.toLocaleString('es-AR', {
@@ -85,7 +85,7 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
 
   if (step === 'done' && result) {
     return (
-      <div className="rounded-3xl border border-primary/30 bg-white/[0.03] p-8 text-center">
+      <div className="rounded-3xl border border-primary/30 bg-white/3 p-8 text-center">
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-3xl">
           🎉
         </div>
@@ -123,7 +123,7 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="relative rounded-3xl border border-white/[0.08] bg-white/[0.03] p-7"
+      className="relative rounded-3xl border border-white/8 bg-white/3 p-7"
     >
       <h3 className="font-display text-xl font-bold">Asociate ahora</h3>
       <p className="mt-1 text-[13px] text-white/45">
@@ -174,7 +174,7 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
         ))}
       </select>
 
-      <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/[0.08] bg-black/25 px-5 py-3.5">
+      <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/8 bg-black/25 px-5 py-3.5">
         <span className="text-[13px] text-white/50">Cuota mensual</span>
         <span className="font-display text-xl font-bold">
           {amount > 0 ? formatMoney(amount) : '—'}

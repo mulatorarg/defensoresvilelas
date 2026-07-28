@@ -99,7 +99,7 @@ export default function ReportesPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold">Reportes</h1>
+      <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Reportes</h1>
 
       {/* Resumen */}
       <section>

@@ -42,7 +42,7 @@ interface Profile {
 }
 
 const inputClass =
-  'w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-primary/60 focus:bg-white/[0.08]';
+  'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/30 outline-hidden transition-colors focus:border-primary/60 focus:bg-white/8';
 
 const formatMoney = (value: string | number) =>
   Number(value).toLocaleString('es-AR', {
@@ -130,7 +130,7 @@ export default function SocioPage() {
   return (
     <main className="min-h-screen bg-[#05070e] text-white">
       {/* Header */}
-      <header className="border-b border-white/[0.06] bg-[#05070e]/80 backdrop-blur">
+      <header className="border-b border-white/6 bg-[#05070e]/80 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-5">
           <Link href="/" className="flex items-center gap-3">
             {club.logoUrl && (
@@ -171,7 +171,7 @@ export default function SocioPage() {
 
             <form
               onSubmit={handleLogin}
-              className="rounded-3xl border border-white/[0.08] bg-white/[0.03] p-7"
+              className="rounded-3xl border border-white/8 bg-white/3 p-7"
             >
               {error && (
                 <p className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-[13px] text-red-300">
@@ -222,13 +222,13 @@ export default function SocioPage() {
             {/* Carnet */}
             <div className="md:col-span-2">
               <div
-                className="overflow-hidden rounded-3xl p-[1px]"
+                className="overflow-hidden rounded-3xl p-px"
                 style={{
                   backgroundImage:
                     'linear-gradient(140deg, var(--color-primary), rgba(255,255,255,0.12), var(--color-secondary))',
                 }}
               >
-                <div className="rounded-[calc(1.5rem-1px)] bg-[#0a1410] p-6 text-center">
+                <div className="rounded-[calc(var(--radius-3xl)-1px)] bg-[#0a1410] p-6 text-center">
                   <div className="mb-4 flex items-center justify-center gap-2.5">
                     {club.logoUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -271,7 +271,7 @@ export default function SocioPage() {
 
             {/* Cuotas + actividades */}
             <div className="space-y-6 md:col-span-3">
-              <section className="rounded-3xl border border-white/[0.08] bg-white/[0.03] p-6">
+              <section className="rounded-3xl border border-white/8 bg-white/3 p-6">
                 <h2 className="font-display text-lg font-bold">Mis cuotas pendientes</h2>
                 {fees.length === 0 ? (
                   <p className="mt-3 rounded-xl border border-primary/25 bg-primary/10 px-4 py-3 text-[13px] text-white/70">
@@ -284,7 +284,7 @@ export default function SocioPage() {
                       return (
                         <li
                           key={fee.id}
-                          className="flex items-center justify-between gap-4 rounded-2xl border border-white/[0.07] bg-black/25 px-5 py-3.5"
+                          className="flex items-center justify-between gap-4 rounded-2xl border border-white/7 bg-black/25 px-5 py-3.5"
                         >
                           <div>
                             <p className="text-sm font-semibold">
@@ -317,14 +317,14 @@ export default function SocioPage() {
                 </p>
               </section>
 
-              <section className="rounded-3xl border border-white/[0.08] bg-white/[0.03] p-6">
+              <section className="rounded-3xl border border-white/8 bg-white/3 p-6">
                 <h2 className="font-display text-lg font-bold">Mis actividades</h2>
                 {profile?.enrollments?.length ? (
                   <ul className="mt-4 space-y-3">
                     {profile.enrollments.map((e) => (
                       <li
                         key={e.id}
-                        className="rounded-2xl border border-white/[0.07] bg-black/25 px-5 py-3.5"
+                        className="rounded-2xl border border-white/7 bg-black/25 px-5 py-3.5"
                       >
                         <p className="text-sm font-semibold">
                           {e.category.discipline.name} · {e.category.name}
