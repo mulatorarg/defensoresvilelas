@@ -9,6 +9,9 @@ RUN npm ci
 # Vacío = URLs relativas: la web llama a la API en su misma origin (dominio del club)
 ARG NEXT_PUBLIC_API_URL=""
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# SHA del commit (lo pasa el workflow) para mostrar la versión en la web
+ARG GIT_SHA=""
+ENV NEXT_PUBLIC_BUILD_SHA=$GIT_SHA
 RUN npm run build
 
 # --- Etapa 2: runtime Python ---

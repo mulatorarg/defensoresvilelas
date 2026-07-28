@@ -662,7 +662,8 @@ export default function HomePage() {
               className="underline-offset-2 transition-colors hover:text-white hover:underline"
             >
               Administración
-            </Link>
+            </Link>{' '}
+            · <span className="font-mono text-[11px] text-white/25">{process.env.NEXT_PUBLIC_BUILD_SHA}</span>
           </p>
         </div>
       </footer>

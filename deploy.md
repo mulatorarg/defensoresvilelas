@@ -120,7 +120,7 @@ git push origin main        # eso es todo
 El workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
 
 1. Buildea `apps/backend/Dockerfile` (compila el frontend adentro) y pushea `latest` + SHA a GHCR.
-2. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml`, inyectándole la imagen exacta del commit (`ghcr.io/<repo>:<sha>`) — el compose del VPS queda autocontenido.
+2. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml`, inyectándole la imagen `ghcr.io/<repo>:latest` (cada build publica además el tag `<sha>` para rollbacks).
 3. `docker compose pull && up -d` — en el primer arranque `db_init` crea las tablas y `seed` deja la config del club + el admin (idempotentes: nunca pisan datos).
 
 También se puede disparar a mano desde la pestaña Actions (`workflow_dispatch`).

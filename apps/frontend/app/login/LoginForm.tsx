@@ -63,6 +63,10 @@ export default function LoginForm() {
             {loading ? 'Ingresando...' : 'Ingresar'}
           </Button>
         </form>
+
+        <p className="mt-6 text-center font-mono text-[11px] text-gray-300">
+          build {process.env.NEXT_PUBLIC_BUILD_SHA}
+        </p>
       </div>
     </main>
   );

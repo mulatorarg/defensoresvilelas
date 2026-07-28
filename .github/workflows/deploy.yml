@@ -54,6 +54,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -85,9 +87,10 @@ jobs:
             set -e
             cd ${{ env.DEPLOY_PATH }}
 
-            # El compose del repo pasa a ser el compose activo, con la imagen
-            # exacta de este commit (GHCR exige minúsculas)
-            IMAGE=$(echo "ghcr.io/${{ github.repository }}:${{ github.sha }}" | tr '[:upper:]' '[:lower:]')
+            # El compose del repo pasa a ser el compose activo. Se deploya el tag
+            # :latest (normalizado con el resto de los servicios del VPS); cada
+            # build publica además el SHA por si hace falta un rollback puntual.
+            IMAGE=$(echo "ghcr.io/${{ github.repository }}:latest" | tr '[:upper:]' '[:lower:]')
             sed -i "s|__IMAGE__|$IMAGE|g" docker-compose.prod.yml
             mv -f docker-compose.prod.yml docker-compose.yml
             mkdir -p recursos

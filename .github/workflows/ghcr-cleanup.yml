@@ -1,0 +1,46 @@
+name: Limpiar imágenes viejas en GHCR
+
+# Borra las versiones viejas del paquete ghcr.io/<owner>/chacoforever,
+# conservando las N más recientes con tag (default 2: la última y la anteúltima)
+# y eliminando las huérfanas sin tag.
+#
+# Se puede correr a mano (GitHub → Actions → "Run workflow") y también corre
+# solo después de cada build exitoso del workflow de deploy.
+#
+# NOTA: se usa dataaxiom/ghcr-cleanup-action (y no actions/delete-package-versions)
+# porque el build sube attestations de provenance: en GHCR aparecen como
+# versiones "untagged" hijas del manifest taggeado, y la action oficial las
+# borraría rompiendo las imágenes que queremos conservar. Esta action entiende
+# manifest lists y valida la integridad al terminar.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mantener:
+        description: "Cantidad de versiones con tag a conservar"
+        type: number
+        default: 2
+      simular:
+        description: "Dry-run: solo mostrar qué se borraría, sin borrar"
+        type: boolean
+        default: false
+
+
+jobs:
+  limpiar:
+    runs-on: ubuntu-latest
+    # Con workflow_run, solo limpiar si el build terminó bien
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      packages: write
+
+    steps:
+      - name: Borrar versiones viejas del paquete
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Con disparo automático (workflow_run) no hay inputs: usar defaults
+          keep-n-tagged: ${{ inputs.mantener || 2 }}
+          delete-untagged: true
+          validate: true
+          dry-run: ${{ inputs.simular || false }}
