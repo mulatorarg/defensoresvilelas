@@ -1,0 +1,102 @@
+# Deploy: build de la imagen -> push a GHCR -> deploy al VPS por SSH.
+#
+# Secrets requeridos en el repo (Settings -> Secrets and variables -> Actions):
+#   VPS_HOST             IP o dominio del VPS
+#   VPS_USER             usuario SSH (ej: deploy)
+#   VPS_PORT             puerto SSH (ej: 22)
+#   VPS_SSH_PRIVATE_KEY  clave privada SSH (el .pub va en authorized_keys del VPS)
+#
+# En el VPS debe existir /home/${{ secrets.VPS_USER }}/defensores/.env con las variables de la app
+# (ver deploy.md), incluida DEPLOY_IMAGE=ghcr.io/<usuario>/<repo>:latest
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+env:
+  DEPLOY_PATH: /home/${{ secrets.VPS_USER }}/defensores
+
+jobs:
+  build:
+    name: Build & push a GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Metadata de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy al VPS
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copiar docker-compose.yml al VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          source: docker-compose.prod.yml
+          target: ${{ env.DEPLOY_PATH }}
+
+      - name: Levantar la nueva versión
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            # El compose del repo pasa a ser el compose activo
+            mv -f docker-compose.prod.yml docker-compose.yml
+            mkdir -p recursos
+
+            if [ ! -f .env ]; then
+              echo "ERROR: falta ${{ env.DEPLOY_PATH }}/.env — crearlo antes del primer deploy (ver deploy.md)"
+              exit 1
+            fi
+
+            # Login a GHCR con el token del workflow (válido también para imágenes privadas)
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            docker compose pull app
+            docker compose up -d
+            docker image prune -f
+            docker compose ps

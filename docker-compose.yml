@@ -1,0 +1,58 @@
+# Stack local completo: MariaDB + app (API FastAPI sirviendo el frontend estático)
+#
+#   docker compose up --build
+#
+# La app queda en http://localhost:3001 (login: admin@clubes.local / admin123).
+# MariaDB se expone en el puerto 3307 del host para no chocar con Laragon (3306).
+# En el primer arranque se crean las tablas y el seed demo automáticamente.
+
+services:
+  mariadb:
+    image: mariadb:11
+    container_name: clubes-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_pass}
+      MARIADB_USER: clubes_user
+      MARIADB_PASSWORD: ${DB_PASSWORD:-clubes_pass}
+      MARIADB_DATABASE: clubes_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  app:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: clubes-app
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./recursos:/app/recursos
+    environment:
+      RECURSOS_DIR: /app/recursos
+      DATABASE_URL: mysql://clubes_user:${DB_PASSWORD:-clubes_pass}@mariadb:3306/clubes_db
+      JWT_SECRET: ${JWT_SECRET:-secreto-de-desarrollo-local-cambiar-en-produccion}
+      QR_SECRET: ${QR_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      MERCADO_PAGO_ACCESS_TOKEN: ${MERCADO_PAGO_ACCESS_TOKEN:-}
+      MERCADO_PAGO_WEBHOOK_SECRET: ${MERCADO_PAGO_WEBHOOK_SECRET:-}
+      CLUB_NAME: ${CLUB_NAME:-Club Defensores de Vilelas}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@clubes.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      SEED_DEMO: ${SEED_DEMO:-1}
+    command: >
+      sh -c "python -m app.db_init && python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 3001"
+
+volumes:
+  mariadb_data:

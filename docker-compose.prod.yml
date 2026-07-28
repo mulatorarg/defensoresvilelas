@@ -1,0 +1,40 @@
+# Compose de PRODUCCIÓN — el workflow lo copia al VPS como docker-compose.yml
+#
+# El VPS ya tiene MariaDB y Nginx instalados a nivel de sistema operativo:
+# este compose levanta SOLO la app. El contenedor llega al MariaDB del host
+# vía host.docker.internal (host-gateway) — ver deploy.md §2 para preparar
+# la base y el usuario.
+#
+# En la carpeta de deploy conviven solo 3 cosas:
+#   .env                (creado a mano una vez; es la identidad del club)
+#   docker-compose.yml  (este archivo, actualizado en cada deploy)
+#   recursos/           (volumen persistente: fotos de socios, documentos, etc.)
+#
+# La app expone UN solo puerto (${PORT}) en loopback: la API sirve también la
+# web estática y /recursos. Nginx (host) hace proxy con TLS. Ver nginx.conf.
+
+services:
+  app:
+    image: ${DEPLOY_IMAGE:?Definir DEPLOY_IMAGE en .env (ej ghcr.io/usuario/repo:latest)}
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Un solo puerto, solo en loopback: Nginx es la puerta de entrada
+      - "127.0.0.1:${PORT:-3030}:3001"
+    volumes:
+      - ./recursos:/app/recursos
+    environment:
+      # MariaDB del host: mysql://usuario:pass@host.docker.internal:3306/clubes_db
+      DATABASE_URL: ${DATABASE_URL:?Definir DATABASE_URL en .env}
+      JWT_SECRET: ${JWT_SECRET:?Definir JWT_SECRET en .env}
+      QR_SECRET: ${QR_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:?Definir FRONTEND_URL en .env}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      RECURSOS_DIR: /app/recursos
+      CLUB_NAME: ${CLUB_NAME:-Mi Club}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@clubes.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Definir ADMIN_PASSWORD en .env}
+    command: >
+      sh -c "python -m app.db_init && python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 3001 --workers 2"
