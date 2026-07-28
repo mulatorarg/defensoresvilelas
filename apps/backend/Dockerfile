@@ -6,7 +6,8 @@ FROM node:22-alpine AS frontend
 WORKDIR /build
 COPY apps/frontend ./
 RUN npm ci
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+# Vacío = URLs relativas: la web llama a la API en su misma origin (dominio del club)
+ARG NEXT_PUBLIC_API_URL=""
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 

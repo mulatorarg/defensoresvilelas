@@ -10,7 +10,9 @@ const nextConfig = {
   },
   trailingSlash: true,
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || backendUrl,
+    // '' = URLs relativas (producción: la API sirve la web en la misma origin).
+    // undefined = dev sin config -> fallback al backend local.
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? backendUrl,
   },
 };
 
