@@ -6,8 +6,9 @@
 #   VPS_PORT             puerto SSH (ej: 22)
 #   VPS_SSH_PRIVATE_KEY  clave privada SSH (el .pub va en authorized_keys del VPS)
 #
-# En el VPS debe existir /home/${{ secrets.VPS_USER }}/defensores/.env con las variables de la app
-# (ver deploy.md), incluida DEPLOY_IMAGE=ghcr.io/<usuario>/<repo>:latest
+# En el VPS debe existir /home/${{ secrets.VPS_USER }}/defensores/.env con las
+# variables de la app (ver deploy.md). La imagen a deployar NO va en el .env:
+# el workflow la inyecta en el docker-compose.yml con el SHA de cada commit.
 
 name: Deploy
 
@@ -84,7 +85,10 @@ jobs:
             set -e
             cd ${{ env.DEPLOY_PATH }}
 
-            # El compose del repo pasa a ser el compose activo
+            # El compose del repo pasa a ser el compose activo, con la imagen
+            # exacta de este commit (GHCR exige minúsculas)
+            IMAGE=$(echo "ghcr.io/${{ github.repository }}:${{ github.sha }}" | tr '[:upper:]' '[:lower:]')
+            sed -i "s|__IMAGE__|$IMAGE|g" docker-compose.prod.yml
             mv -f docker-compose.prod.yml docker-compose.yml
             mkdir -p recursos
 

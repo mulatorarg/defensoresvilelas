@@ -54,8 +54,10 @@ El contenedor llega al host vía `host.docker.internal` (IP del bridge de Docker
 
 ```sql
 CREATE DATABASE clubes_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'clubes_user'@'172.%' IDENTIFIED BY 'una-clave-fuerte';
-GRANT ALL PRIVILEGES ON clubes_db.* TO 'clubes_user'@'172.%';
+CREATE USER 'clubes_user'@'localhost' IDENTIFIED BY 'clubes_pass';
+CREATE USER 'clubes_user'@'%' IDENTIFIED BY 'clubes_pass';
+GRANT ALL PRIVILEGES ON clubes_db.* TO 'clubes_user'@'localhost';
+GRANT ALL PRIVILEGES ON clubes_db.* TO 'clubes_user'@'%';
 FLUSH PRIVILEGES;
 ```
 
@@ -76,9 +78,6 @@ sudo ufw deny 3306
 ### `/home/deploy/defensores/.env`
 
 ```env
-# Imagen que publica el workflow (ajustar usuario/repo)
-DEPLOY_IMAGE=ghcr.io/TU_USUARIO/TU_REPO:latest
-
 # Puerto único de la app en el host (Nginx apunta acá)
 PORT=3030
 
@@ -121,7 +120,7 @@ git push origin main        # eso es todo
 El workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
 
 1. Buildea `apps/backend/Dockerfile` (compila el frontend adentro) y pushea `latest` + SHA a GHCR.
-2. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml`.
+2. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml`, inyectándole la imagen exacta del commit (`ghcr.io/<repo>:<sha>`) — el compose del VPS queda autocontenido.
 3. `docker compose pull && up -d` — en el primer arranque `db_init` crea las tablas y `seed` deja la config del club + el admin (idempotentes: nunca pisan datos).
 
 También se puede disparar a mano desde la pestaña Actions (`workflow_dispatch`).
@@ -160,7 +159,7 @@ docker compose restart app        # reinicio
 docker compose pull && docker compose up -d   # actualizar a mano (sin Actions)
 ```
 
-**Rollback**: `DEPLOY_IMAGE=ghcr.io/usuario/repo:<sha-anterior>` en el `.env` y `docker compose up -d` (cada build también se publica con el SHA del commit).
+**Rollback**: dos opciones — re-ejecutar el workflow desde el commit anterior (pestaña Actions → Re-run), o en el VPS editar la línea `image:` del `docker-compose.yml` con el SHA anterior y `docker compose up -d`.
 
 **Cambios de schema**: `db_init` crea tablas nuevas automáticamente; no altera columnas existentes (para eso, migración manual planificada).
 

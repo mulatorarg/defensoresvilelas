@@ -1,8 +1,8 @@
-# Compose de PRODUCCIÓN — el workflow lo copia al VPS como docker-compose.yml
+# Compose de PROD - el workflow lo copia al VPS como docker-compose.yml
 #
 # El VPS ya tiene MariaDB y Nginx instalados a nivel de sistema operativo:
 # este compose levanta SOLO la app. El contenedor llega al MariaDB del host
-# vía host.docker.internal (host-gateway) — ver deploy.md §2 para preparar
+# vía host.docker.internal (host-gateway) - ver deploy.md §2 para preparar
 # la base y el usuario.
 #
 # En la carpeta de deploy conviven solo 3 cosas:
@@ -15,7 +15,9 @@
 
 services:
   app:
-    image: ${DEPLOY_IMAGE:?Definir DEPLOY_IMAGE en .env (ej ghcr.io/usuario/repo:latest)}
+    # __IMAGE__ lo reemplaza el workflow en cada deploy por ghcr.io/<repo>:<sha>
+    # (el archivo queda autocontenido: up/restart manuales no necesitan variables)
+    image: __IMAGE__
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
