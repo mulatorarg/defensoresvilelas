@@ -69,5 +69,4 @@ def register_attendance(dto: RegisterAttendanceDto, db: DbDep, ctx: StaffContext
         ctx.user.get("sub"),
     )
     db.commit()
-    db.refresh(attendance)
     return serializers.attendance_full(attendance)

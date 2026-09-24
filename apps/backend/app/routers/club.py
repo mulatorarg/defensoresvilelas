@@ -8,6 +8,7 @@ from .. import crypto, serializers
 from ..audit import audit
 from ..schemas import OptionalAmount, OptionalEmail
 from ..deps import DbDep, StaffContext, get_club_config, require_roles
+from ..uploads import delete_upload
 
 router = APIRouter(prefix="/api/club", tags=["club"])
 
@@ -29,6 +30,7 @@ class UpdateClubConfigDto(BaseModel):
     monthlyFee: OptionalAmount = None
     mpAccessToken: str | None = Field(default=None, max_length=500)
     mpWebhookSecret: str | None = Field(default=None, max_length=500)
+    heroImageUrl: str | None = Field(default=None, max_length=191)
 
 
 @router.get("")
@@ -46,6 +48,8 @@ def update_config(
     dto: UpdateClubConfigDto, db: DbDep, ctx: StaffContext = Depends(require_roles("ADMIN"))
 ):
     config = get_club_config(db)
+    previous_logo = config.logoUrl
+    previous_hero = config.heroImageUrl
     fields = dto.model_dump(exclude_unset=True)
     if "monthlyFee" in fields:
         raw = fields.pop("monthlyFee")
@@ -62,5 +66,9 @@ def update_config(
         setattr(config, key, value)
     audit(db, ctx, "UPDATE", "club_config", config.id, sorted(dto.model_fields_set))
     db.commit()
-    db.refresh(config)
+    # Solo borra archivos subidos por la app (no URLs externas ni /escudo.svg)
+    if config.logoUrl != previous_logo:
+        delete_upload(previous_logo)
+    if config.heroImageUrl != previous_hero:
+        delete_upload(previous_hero)
     return serializers.club_config_full(config)

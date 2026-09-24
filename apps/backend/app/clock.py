@@ -59,3 +59,23 @@ def local_date_to_utc(day: date) -> datetime:
     if day == local_today():
         return models.utcnow()
     return to_utc_naive(datetime.combine(day, time(12, 0), tzinfo=CLUB_TZ))
+
+
+def parse_local_datetime(value: str) -> datetime:
+    """Fecha y hora cargada por el usuario, a UTC naive.
+
+    Sin zona ("2026-10-05T18:00", como manda <input type="datetime-local">) es
+    hora del club; con zona ("...Z", "...-03:00") se respeta la indicada.
+    """
+    from .errors import bad_request
+
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        raise bad_request(f"Fecha inválida: {value}")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=CLUB_TZ)
+    return to_utc_naive(dt)

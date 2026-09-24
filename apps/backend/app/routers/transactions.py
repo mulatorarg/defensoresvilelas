@@ -32,7 +32,6 @@ def create(dto: CreateTransactionDto, db: DbDep, ctx: StaffContext = Roles):
     db.add(transaction)
     audit(db, ctx, "CREATE", "transaction", transaction.id, serializers.transaction(transaction))
     db.commit()
-    db.refresh(transaction)
     return serializers.transaction(transaction)
 
 
@@ -44,6 +43,7 @@ def find_all(
     frm: str | None = Query(default=None, alias="from"),
     to: str | None = None,
     includeVoided: bool = True,
+    limit: int = Query(default=500, ge=1, le=2000),
 ):
     query = select(models.Transaction)
     if type:
@@ -57,6 +57,7 @@ def find_all(
 
     items = db.scalars(
         query.order_by(models.Transaction.date.desc(), models.Transaction.createdAt.desc())
+        .limit(limit)
     ).all()
     return [serializers.transaction(t) for t in items]
 
@@ -78,5 +79,4 @@ def void(transaction_id: str, dto: VoidTransactionDto, db: DbDep, ctx: StaffCont
         **serializers.transaction(transaction),
     })
     db.commit()
-    db.refresh(transaction)
     return serializers.transaction(transaction)

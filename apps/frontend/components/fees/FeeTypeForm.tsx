@@ -1,9 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { FeeType } from '@/lib/types';
-import { Button } from '@/components/ui/Button';
+import { optionalText, requiredText } from '@/lib/validation';
 import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { FormActions } from '@/components/ui/FormActions';
+
+const schema = z.object({
+  name: requiredText('Nombre'),
+  description: optionalText(1000),
+  isActive: z.boolean(),
+});
+
+type FormValues = z.infer<typeof schema>;
 
 interface FeeTypeFormProps {
   feeType?: FeeType | null;
@@ -12,53 +24,22 @@ interface FeeTypeFormProps {
   isLoading?: boolean;
 }
 
-export function FeeTypeForm({
-  feeType,
-  onSubmit,
-  onCancel,
-  isLoading,
-}: FeeTypeFormProps) {
-  const [form, setForm] = useState({
-    name: feeType?.name ?? '',
-    description: feeType?.description ?? '',
-    isActive: feeType?.isActive ?? true,
+export function FeeTypeForm({ feeType, onSubmit, onCancel, isLoading }: FeeTypeFormProps) {
+  const { register, handleSubmit, formState: { errors } } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      name: feeType?.name ?? '',
+      description: feeType?.description ?? '',
+      isActive: feeType?.isActive ?? true,
+    },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(form);
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Input
-        label="Nombre"
-        value={form.name}
-        onChange={(e) => setForm({ ...form, name: e.target.value })}
-        required
-      />
-      <Input
-        label="Descripción"
-        value={form.description}
-        onChange={(e) => setForm({ ...form, description: e.target.value })}
-      />
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={form.isActive}
-          onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-        />
-        <span className="text-sm text-gray-700">Activo</span>
-      </label>
-
-      <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Guardando...' : feeType ? 'Guardar' : 'Crear'}
-        </Button>
-      </div>
+    <form onSubmit={handleSubmit((data) => onSubmit(data))} className="space-y-4" noValidate>
+      <Input label="Nombre" {...register('name')} error={errors.name?.message} />
+      <Input label="Descripción" {...register('description')} error={errors.description?.message} />
+      <Checkbox label="Activo" hint="Los inactivos no se ofrecen al generar cuotas" {...register('isActive')} />
+      <FormActions onCancel={onCancel} isLoading={isLoading} submitLabel={feeType ? 'Guardar' : 'Crear'} />
     </form>
   );
 }

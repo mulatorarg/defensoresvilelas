@@ -9,6 +9,7 @@ y se borra y recrea en cada corrida: por seguridad el nombre debe contener "test
 """
 import itertools
 import os
+import tempfile
 
 import pytest
 
@@ -35,6 +36,8 @@ os.environ.update({
     "ADMIN_EMAIL": "admin@clubes.local",
     "ADMIN_PASSWORD": "admin123",
     "SEED_DEMO": "1",
+    # Las imágenes subidas en los tests van a una carpeta temporal, no a recursos/
+    "RECURSOS_DIR": tempfile.mkdtemp(prefix="clubes-test-recursos-"),
 })
 
 from fastapi.testclient import TestClient  # noqa: E402

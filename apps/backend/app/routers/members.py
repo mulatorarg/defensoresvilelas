@@ -4,6 +4,7 @@ from sqlalchemy.orm import selectinload
 
 from .. import models, serializers
 from ..audit import audit
+from ..uploads import delete_upload
 from ..deps import DbDep, StaffContext, require_roles
 from ..errors import conflict, not_found
 from ..ids import new_id
@@ -22,6 +23,28 @@ MEMBER_LOAD_OPTIONS = (
     .selectinload(models.Enrollment.category)
     .selectinload(models.Category.discipline),
 )
+
+
+def _search_filters(search: str) -> list:
+    """Filtros de búsqueda.
+
+    - Solo números: DNI o número de socio por prefijo (usan sus índices unique).
+    - Texto: cada palabra tiene que aparecer en nombre, apellido o email
+      ("juan per" encuentra a Juan Pérez). Es un LIKE '%...%' sin índice, que
+      alcanza de sobra para el padrón de un club (algunos miles de socios).
+    """
+    text = search.strip()
+    if text.isdigit():
+        return [or_(models.Member.dni.startswith(text), models.Member.memberNumber.startswith(text))]
+    filters = []
+    for word in text.split()[:5]:
+        term = f"%{word}%"
+        filters.append(or_(
+            models.Member.firstName.like(term),
+            models.Member.lastName.like(term),
+            models.Member.email.like(term),
+        ))
+    return filters
 
 
 def _get_member(db, member_id: str) -> models.Member:
@@ -74,9 +97,8 @@ def create(dto: CreateMemberDto, db: DbDep, ctx: StaffContext = WriteRoles):
     if dto.playerProfile:
         _apply_player_profile(member, dto.playerProfile)
 
-    audit(db, ctx, "UPDATE", "member", member.id, sorted(dto.model_fields_set))
+    audit(db, ctx, "CREATE", "member", member.id)
     db.commit()
-    db.refresh(member)
     return serializers.member_full(member)
 
 
@@ -99,16 +121,8 @@ def find_all(
     if status:
         query = query.where(models.Member.status == status)
 
-    if search:
-        term = "%" + search.strip() + "%"
-        query = query.where(
-            or_(
-                models.Member.firstName.like(term),
-                models.Member.lastName.like(term),
-                models.Member.dni.like(term),
-                models.Member.email.like(term),
-            )
-        )
+    if search and search.strip():
+        query = query.where(*_search_filters(search))
 
     if categoryId:
         query = query.where(
@@ -154,6 +168,7 @@ def update(member_id: str, dto: UpdateMemberDto, db: DbDep, ctx: StaffContext = 
     if dto.dni and dto.dni != member.dni:
         _ensure_dni_available(db, dto.dni)
 
+    previous_photo = member.photoUrl
     fields = dto.model_dump(exclude_unset=True, exclude={"playerProfile", "birthDate"})
     for key, value in fields.items():
         if value is not None:
@@ -167,7 +182,9 @@ def update(member_id: str, dto: UpdateMemberDto, db: DbDep, ctx: StaffContext = 
 
     audit(db, ctx, "UPDATE", "member", member.id, sorted(dto.model_fields_set))
     db.commit()
-    db.refresh(member)
+    # Recién después del commit: si falla el guardado, la foto anterior sigue en uso
+    if member.photoUrl != previous_photo:
+        delete_upload(previous_photo)
     return serializers.member_full(member)
 
 
@@ -178,7 +195,6 @@ def remove(member_id: str, db: DbDep, ctx: StaffContext = WriteRoles):
     member.status = "INACTIVE"
     audit(db, ctx, "DEACTIVATE", "member", member.id)
     db.commit()
-    db.refresh(member)
     return serializers.member_full(member)
 
 

@@ -15,6 +15,7 @@ def find_all(
     entity: str | None = None,
     entityId: str | None = None,
     userId: str | None = None,
+    action: str | None = None,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
 ):
@@ -25,6 +26,8 @@ def find_all(
         query = query.where(models.AuditLog.entityId == entityId)
     if userId:
         query = query.where(models.AuditLog.userId == userId)
+    if action:
+        query = query.where(models.AuditLog.action == action)
 
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     items = db.scalars(

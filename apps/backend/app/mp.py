@@ -123,6 +123,9 @@ def update_fee_status(db: Session, fee_id: str) -> None:
         Decimal("0"),
     )
 
+    if fee.status == "CANCELLED" and total_paid == 0:
+        return  # anulada sin pagos: queda anulada
+
     status = "PENDING"
     if total_paid >= fee.amount:
         status = "PAID"

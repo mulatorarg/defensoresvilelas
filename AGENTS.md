@@ -82,23 +82,32 @@ Two separate flows:
 | `audit.py` | `audit(db, ctx, action, entity, id, detail)` → `auditoria` table; listed by `GET /api/audit` (ADMIN) |
 | `clock.py` | Club-timezone helpers: `local_today`, `current_period`, `day_bounds_utc`, `local_date_to_utc` |
 | `migrate.py` / `migrations/` | Alembic config by code + migration scripts (CLI uses `apps/backend/alembic.ini`) |
+| `csp.py` | Content-Security-Policy: each HTML page is served with SHA-256 hashes of its own inline scripts (no `'unsafe-inline'` for scripts); adds Cloudflare Turnstile origins only when configured |
+| `captcha.py` | Optional Cloudflare Turnstile verification for the online sign-up (`TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`) |
 | `observability.py` | Request-id middleware + logging format, optional Sentry (`SENTRY_DSN`) |
 | `mp.py` | Mercado Pago SDK (lazy — API works without `MERCADO_PAGO_ACCESS_TOKEN`), fee status recalculation |
 | `errors.py` | HTTPException helpers with `{statusCode, message, error}` body |
 | `db_init.py` / `seed.py` | Schema creation / demo data (run with `python -m app.db_init` / `python -m app.seed`) |
-| `routers/` | One module per resource: auth, club, members, disciplines, categories, enrollments, attendances, fee_types, fees, payments, transactions, reports, member_portal, staff_portal, public, audit_log |
+| `routers/` | One module per resource: auth, club, members, disciplines, categories, enrollments, attendances, fee_types, fees, payments, transactions, reports (paginated + CSV + delinquency), member_portal, staff_portal, public, audit_log, users (ADMIN), uploads, content (news/events) |
+| `uploads.py` | Image uploads: Pillow validates and re-encodes to WEBP without metadata into `recursos/{socios,club,noticias}/`; `delete_upload` removes the previous file when replaced |
+| `pagination.py` / `csv_export.py` | `paginate()` → `{items, meta}`; CSV for Excel es-AR (`;`, BOM, decimal comma, formula-injection guard) |
 
 ### Frontend (`apps/frontend/app/`)
 
 Next.js App Router with static export (`output: 'export'`, `distDir: 'dist'`). The Python backend serves `dist/` at `/` with SPA fallback (excluding `/api/*`).
 
-- `/` — public landing page (club branding from `/api/club`, sign-up form in #asociate)
-- `/socio` — member portal: DNI+birthdate login, pending fees, QR card (`qrcode` package; token in localStorage `memberToken`)
-- `/login` — staff login form
-- `/admin/*` — protected by `AuthGuard`; dark branded sidebar layout
-- `lib/api.ts` — all HTTP calls to the backend
-- `lib/auth.ts` — JWT token read/write (localStorage)
-- `lib/types.ts` — shared TypeScript interfaces
+- `/` - public landing page (club branding, hero and discipline photos from `/api/club` and `/api/public/*`; sign-up form in #asociate with optional Cloudflare Turnstile)
+- `/socio` - member portal (PWA, scope `/socio/`, `public/sw.js`, manifest served by the backend): DNI + birthdate + PIN login, pending fees (Mercado Pago "Pagar" if `onlinePayments`), payments with receipts (`/socio/recibo/?id=`), QR card (`qrcode`, refreshed every 4 min). Token in localStorage `memberToken`; `MEMBER_SESSION_EVENT` notifies login/logout.
+- `/login` - staff login form
+- `/admin/*` - protected by `AuthGuard`; sidebar filtered by role; ADMIN-only pages (`usuarios`, `auditoria`, `configuracion`) wrap content in `RoleGuard`. `/admin/recibo/?id=` is printable (`print:` variants hide the sidebar).
+
+Frontend conventions:
+- Data: TanStack Query everywhere (`components/Providers.tsx`, `lib/queries.ts` with the `qk` key factory and shared catalog hooks `useDisciplines`/`useFeeTypes`/`usePublicClub`). Never load data with fetch + setState inside `useEffect`: `react-hooks/set-state-in-effect` is an ESLint error. After a mutation, invalidate the affected keys (a payment touches fees, delinquency, cash closure, dashboard and reports).
+- Forms: react-hook-form + zod (`lib/validation.ts`), errors next to each field via the `error` prop of `Input`/`Select`/`Textarea`.
+- UI kit in `components/ui`: `PageHeader`, `Modal` (focus trap via `lib/useFocusTrap.ts`), `useFeedback` (toasts + `confirmAction`, never `alert`/`confirm`), `SkeletonRows`/`ErrorState`/`Pagination` (`States.tsx`), `DataList` (table on desktop, cards on mobile), `Checkbox`, `Textarea`, `FormActions`.
+- Icons: `lucide-react` only (no emojis in the UI). Money: `lib/money.ts`. Dates: `lib/dates.ts` (always club timezone).
+- `lib/api.ts` - all HTTP calls; throws `ApiError` (with HTTP status). CSV downloads go through `downloadFile` (needs the Authorization header).
+- `lib/auth.ts` - staff JWT read/write (localStorage); `lib/types.ts` - shared interfaces.
 
 ### Database (MariaDB, Spanish schema)
 
@@ -125,9 +134,9 @@ Full instructions in `deploy.md` (root): GHCR image + Docker Compose per club (r
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` (root). Required: `DATABASE_URL`, `JWT_SECRET` (≥32 chars), `NEXT_PUBLIC_API_URL`, `FRONTEND_URL` (CORS). Optional: `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET`, `QR_SECRET`, `SECRETS_KEY` (Fernet key for MP credentials in DB), `ENABLE_DOCS` (default 1; prod compose sets 0), `SENTRY_DSN`, `APP_ENV`, `LOG_LEVEL`, `CLUB_TIMEZONE`. Backups: `scripts/backup.sh` (reads the club `.env`; `BACKUP_DIR`, `BACKUP_RETENTION_DAYS`, `BACKUP_RCLONE_REMOTE`).
+Copy `.env.example` to `.env` (root). Required: `DATABASE_URL`, `JWT_SECRET` (≥32 chars), `NEXT_PUBLIC_API_URL`, `FRONTEND_URL` (CORS). Optional: `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET`, `QR_SECRET`, `SECRETS_KEY` (Fernet key for MP credentials in DB), `ENABLE_DOCS` (default 1; prod compose sets 0), `SENTRY_DSN`, `APP_ENV`, `LOG_LEVEL`, `CLUB_TIMEZONE`, `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY`, `DB_POOL_SIZE`/`DB_MAX_OVERFLOW`. Backups: `scripts/backup.sh` (reads the club `.env`; `BACKUP_DIR`, `BACKUP_RETENTION_DAYS`, `BACKUP_RCLONE_REMOTE`).
 
-Security headers (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS behind HTTPS) are set by `main.py`, not Nginx. CORS is only enabled for `FRONTEND_URL`. The MP webhook rejects everything unless a webhook secret is configured.
+Security headers (CSP with per-page script hashes from `csp.py`, X-Frame-Options, nosniff, Referrer-Policy, HSTS behind HTTPS) are set by the app, not Nginx. CORS is only enabled for `FRONTEND_URL`. The MP webhook rejects everything unless a webhook secret is configured.
 
 ## Demo Credentials
 

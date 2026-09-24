@@ -29,7 +29,6 @@ def create(dto: CreateFeeTypeDto, db: DbDep, ctx: StaffContext = Roles):
     )
     db.add(fee_type)
     db.commit()
-    db.refresh(fee_type)
     return serializers.fee_type(fee_type)
 
 
@@ -53,7 +52,6 @@ def update(fee_type_id: str, dto: UpdateFeeTypeDto, db: DbDep, ctx: StaffContext
         if value is not None:
             setattr(fee_type, key, value)
     db.commit()
-    db.refresh(fee_type)
     return serializers.fee_type(fee_type)
 
 
@@ -62,5 +60,4 @@ def remove(fee_type_id: str, db: DbDep, ctx: StaffContext = Roles):
     fee_type = _get_fee_type(db, fee_type_id)
     fee_type.isActive = False
     db.commit()
-    db.refresh(fee_type)
     return serializers.fee_type(fee_type)

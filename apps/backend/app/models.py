@@ -46,6 +46,8 @@ class ClubConfig(Base):
     legalName: Mapped[str | None] = mapped_column("nombre_legal", String(191))
     document: Mapped[str | None] = mapped_column("documento", String(191))
     logoUrl: Mapped[str | None] = mapped_column("url_logo", String(191))
+    # Foto principal de la landing (si falta, se usa una foto genérica)
+    heroImageUrl: Mapped[str | None] = mapped_column("url_imagen_portada", String(191))
     primaryColor: Mapped[str | None] = mapped_column("color_primario", String(191), default="#08a757")
     secondaryColor: Mapped[str | None] = mapped_column("color_secundario", String(191), default="#056e3d")
     address: Mapped[str | None] = mapped_column("direccion", String(191))
@@ -93,7 +95,11 @@ class User(Base):
 
 class Member(Base):
     __tablename__ = "socios"
-    __table_args__ = (Index("ix_socios_estado", "estado"),)
+    __table_args__ = (
+        Index("ix_socios_estado", "estado"),
+        # El listado ordena por apellido y nombre
+        Index("ix_socios_apellido_nombre", "apellido", "nombre"),
+    )
 
     id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)
     memberNumber: Mapped[str | None] = mapped_column("numero_socio", String(191), unique=True)
@@ -145,6 +151,8 @@ class Discipline(Base):
     name: Mapped[str] = mapped_column("nombre", String(191))
     description: Mapped[str | None] = mapped_column("descripcion", Text)
     icon: Mapped[str | None] = mapped_column("icono", String(191))
+    # Foto de la disciplina en la landing (si falta, se usa una foto genérica)
+    imageUrl: Mapped[str | None] = mapped_column("url_imagen", String(191))
     isActive: Mapped[bool] = mapped_column("activo", Boolean, default=True)
     createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
     updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
@@ -214,6 +222,10 @@ class Fee(Base):
     __table_args__ = (
         Index("ix_cuotas_socio", "socio_id"),
         Index("ix_cuotas_estado", "estado"),
+        Index("ix_cuotas_periodo", "periodo"),
+        Index("ix_cuotas_creado_en", "creado_en"),
+        # Morosidad: cuotas impagas vencidas
+        Index("ix_cuotas_estado_vencimiento", "estado", "fecha_vencimiento"),
         # Una cuota por socio, período, tipo y categoría. tipo/categoría pueden ser
         # NULL (cuota social) y en un unique los NULL no chocan: se usan claves
         # generadas con COALESCE
@@ -233,6 +245,10 @@ class Fee(Base):
     status: Mapped[str] = mapped_column("estado", String(191), default="PENDING")
     description: Mapped[str | None] = mapped_column("descripcion", Text)
     externalReference: Mapped[str | None] = mapped_column("referencia_externa", String(191))
+    # Anulación (estado CANCELLED): solo cuotas sin pagos registrados
+    cancelledAt: Mapped[datetime | None] = mapped_column("anulada_en", DateTime())
+    cancelledBy: Mapped[str | None] = mapped_column("anulada_por", String(191))
+    cancelReason: Mapped[str | None] = mapped_column("motivo_anulacion", Text)
     createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
     updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
     feeTypeKey: Mapped[str | None] = mapped_column(
@@ -253,6 +269,8 @@ class Payment(Base):
     __table_args__ = (
         Index("ix_pagos_cuota", "cuota_id"),
         Index("ix_pagos_estado", "estado"),
+        # Dashboard y cierre de caja suman por rango de fecha
+        Index("ix_pagos_estado_pagado_en", "estado", "pagado_en"),
         # MP reintenta los webhooks: un pago de MP (su id va en referencia) se
         # registra una sola vez. Los pagos manuales pueden repetir referencia.
         UniqueConstraint("referencia_mp", name="uq_pagos_referencia_mp"),
@@ -288,6 +306,7 @@ class Attendance(Base):
     __table_args__ = (
         UniqueConstraint("categoria_id", "socio_id", "fecha"),
         Index("ix_asistencias_cat_fecha", "categoria_id", "fecha"),
+        Index("ix_asistencias_fecha", "fecha"),
     )
 
     id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)

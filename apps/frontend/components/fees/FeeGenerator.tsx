@@ -1,11 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Category, Discipline, FeeType } from '@/lib/types';
-import { Button } from '@/components/ui/Button';
+import { useForm, useWatch } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { Discipline, FeeType } from '@/lib/types';
+import { optionalDate, optionalMoney, period } from '@/lib/validation';
+import { currentPeriod } from '@/lib/dates';
+import { formatMoney } from '@/lib/money';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { currentPeriod } from '@/lib/dates';
+import { FormActions } from '@/components/ui/FormActions';
 
 interface FeeGeneratorProps {
   feeTypes: FeeType[];
@@ -15,107 +19,100 @@ interface FeeGeneratorProps {
   isLoading?: boolean;
 }
 
-export function FeeGenerator({
-  feeTypes,
-  disciplines,
-  onSubmit,
-  onCancel,
-  isLoading,
-}: FeeGeneratorProps) {
-  const defaultPeriod = currentPeriod();
+export function FeeGenerator({ feeTypes, disciplines, onSubmit, onCancel, isLoading }: FeeGeneratorProps) {
+  // Solo catálogos activos: no se generan cuotas de tipos o categorías dados de baja
+  const activeTypes = feeTypes.filter((ft) => ft.isActive);
+  const activeDisciplines = disciplines.filter((d) => d.isActive);
 
-  const [form, setForm] = useState({
-    period: defaultPeriod,
-    feeTypeId: feeTypes[0]?.id ?? '',
-    disciplineId: '',
-    categoryId: '',
-    amount: '',
-    dueDate: '',
+  const schema = z
+    .object({
+      period,
+      feeTypeId: z.string().min(1, 'Elegí el tipo de cuota'),
+      disciplineId: z.string(),
+      categoryId: z.string(),
+      amount: optionalMoney('Monto'),
+      dueDate: optionalDate,
+    })
+    .refine(
+      (v) => {
+        if (v.amount) return true;
+        const category = activeDisciplines.flatMap((d) => d.categories).find((c) => c.id === v.categoryId);
+        return Boolean(category?.feeAmount);
+      },
+      { path: ['amount'], message: 'Indicá el monto (o elegí una categoría con cuota definida)' },
+    );
+
+  const { register, control, setValue, handleSubmit, formState: { errors } } = useForm<
+    z.input<typeof schema>,
+    unknown,
+    z.output<typeof schema>
+  >({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      period: currentPeriod(),
+      feeTypeId: activeTypes[0]?.id ?? '',
+      disciplineId: '',
+      categoryId: '',
+      amount: '',
+      dueDate: '',
+    },
   });
 
-  const categories = useMemo<Category[]>(() => {
-    const discipline = disciplines.find((d) => d.id === form.disciplineId);
-    return discipline?.categories ?? [];
-  }, [disciplines, form.disciplineId]);
+  const disciplineId = useWatch({ control, name: 'disciplineId' });
+  const categoryId = useWatch({ control, name: 'categoryId' });
+  const categories =
+    activeDisciplines.find((d) => d.id === disciplineId)?.categories.filter((c) => c.isActive) ?? [];
+  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const disciplineField = register('disciplineId');
 
-  const feeTypeOptions = feeTypes.map((ft) => ({
-    value: ft.id,
-    label: ft.name,
-  }));
-
-  const disciplineOptions = [
-    { value: '', label: 'Todas las disciplinas' },
-    ...disciplines.map((d) => ({ value: d.id, label: d.name })),
-  ];
-
-  const categoryOptions = [
-    { value: '', label: 'Todas las categorías' },
-    ...categories.map((c) => ({ value: c.id, label: c.name })),
-  ];
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const data: Record<string, unknown> = {
-      period: form.period,
-      feeTypeId: form.feeTypeId,
-      dueDate: form.dueDate || undefined,
-    };
-    if (form.categoryId) data.categoryId = form.categoryId;
-    if (form.amount) data.amount = form.amount;
+  const submit = handleSubmit((v) => {
+    const data: Record<string, unknown> = { period: v.period, feeTypeId: v.feeTypeId };
+    if (v.dueDate) data.dueDate = v.dueDate;
+    if (v.categoryId) data.categoryId = v.categoryId;
+    if (v.amount) data.amount = v.amount;
     onSubmit(data);
-  };
+  });
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Input
-        label="Período (AAAA-MM)"
-        value={form.period}
-        onChange={(e) => setForm({ ...form, period: e.target.value })}
-        required
-      />
-      <Select
-        label="Tipo de cuota"
-        options={feeTypeOptions}
-        value={form.feeTypeId}
-        onChange={(e) => setForm({ ...form, feeTypeId: e.target.value })}
-        required
-      />
-      <Select
-        label="Disciplina"
-        options={disciplineOptions}
-        value={form.disciplineId}
-        onChange={(e) =>
-          setForm({ ...form, disciplineId: e.target.value, categoryId: '' })
-        }
-      />
-      <Select
-        label="Categoría"
-        options={categoryOptions}
-        value={form.categoryId}
-        onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-      />
-      <Input
-        label="Monto (opcional si la categoría tiene cuota)"
-        type="number"
-        step="0.01"
-        value={form.amount}
-        onChange={(e) => setForm({ ...form, amount: e.target.value })}
-      />
-      <Input
-        label="Fecha de vencimiento"
-        type="date"
-        value={form.dueDate}
-        onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-      />
-
-      <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Generando...' : 'Generar cuotas'}
-        </Button>
+    <form onSubmit={submit} className="space-y-4" noValidate>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input label="Período" type="month" {...register('period')} error={errors.period?.message} />
+        <Select
+          label="Tipo de cuota"
+          options={activeTypes.map((ft) => ({ value: ft.id, label: ft.name }))}
+          {...register('feeTypeId')}
+          error={errors.feeTypeId?.message}
+        />
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Select
+          label="Disciplina"
+          options={[{ value: '', label: 'Todas (todos los socios activos)' }, ...activeDisciplines.map((d) => ({ value: d.id, label: d.name }))]}
+          {...disciplineField}
+          onChange={(e) => {
+            disciplineField.onChange(e);
+            setValue('categoryId', '');
+          }}
+        />
+        <Select
+          label="Categoría"
+          options={[{ value: '', label: 'Todas las categorías' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+          {...register('categoryId')}
+        />
+      </div>
+      <Input
+        label="Monto"
+        inputMode="decimal"
+        hint={
+          selectedCategory?.feeAmount
+            ? `Vacío = cuota de la categoría (${formatMoney(selectedCategory.feeAmount)})`
+            : 'Obligatorio salvo que la categoría tenga cuota definida'
+        }
+        {...register('amount')}
+        error={errors.amount?.message}
+      />
+      <Input label="Fecha de vencimiento" type="date" {...register('dueDate')} error={errors.dueDate?.message} />
+      <FormActions onCancel={onCancel} isLoading={isLoading} submitLabel="Generar cuotas" loadingLabel="Generando..." />
     </form>
   );
 }

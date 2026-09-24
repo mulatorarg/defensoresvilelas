@@ -23,7 +23,6 @@ def get_club_config(db: Session) -> models.ClubConfig:
         config = models.ClubConfig(id="club")
         db.add(config)
         db.commit()
-        db.refresh(config)
     return config
 
 

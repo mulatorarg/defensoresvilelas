@@ -1,8 +1,8 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .. import models, serializers
 from ..deps import DbDep, StaffContext, require_roles
@@ -89,7 +89,6 @@ def create(dto: CreateAttendanceDto, db: DbDep, ctx: StaffContext = Roles):
         ctx.user.get("sub"),
     )
     db.commit()
-    db.refresh(attendance)
     return serializers.attendance_full(attendance)
 
 
@@ -115,6 +114,7 @@ def find_all(
     categoryId: str | None = None,
     memberId: str | None = None,
     date: str | None = None,
+    limit: int = Query(default=500, ge=1, le=2000),
 ):
     query = select(models.Attendance)
     if categoryId:
@@ -125,9 +125,13 @@ def find_all(
         query = query.where(models.Attendance.date == parse_date(date))
 
     items = db.scalars(
-        query.join(models.Attendance.member).order_by(
-            models.Attendance.date.desc(), models.Member.lastName.asc()
+        query.join(models.Attendance.member)
+        .options(
+            selectinload(models.Attendance.member),
+            selectinload(models.Attendance.category).selectinload(models.Category.discipline),
         )
+        .order_by(models.Attendance.date.desc(), models.Member.lastName.asc())
+        .limit(limit)
     ).all()
     return [serializers.attendance_full(a) for a in items]
 

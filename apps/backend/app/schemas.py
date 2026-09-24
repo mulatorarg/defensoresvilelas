@@ -94,6 +94,7 @@ class CreateDisciplineDto(BaseModel):
     name: str = Field(min_length=1)
     description: str | None = None
     icon: str | None = None
+    imageUrl: str | None = Field(default=None, max_length=191)
     isActive: bool | None = None
 
 
@@ -101,6 +102,7 @@ class UpdateDisciplineDto(BaseModel):
     name: str | None = None
     description: str | None = None
     icon: str | None = None
+    imageUrl: str | None = Field(default=None, max_length=191)
     isActive: bool | None = None
 
 
@@ -194,6 +196,67 @@ class CreateTransactionDto(BaseModel):
 
 
 class VoidTransactionDto(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+StaffRole = Literal["ADMIN", "OPERATOR", "TEACHER", "STAFF"]
+
+
+class CreateUserDto(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    firstName: str = Field(min_length=1, max_length=191)
+    lastName: str = Field(min_length=1, max_length=191)
+    phone: str | None = Field(default=None, max_length=191)
+    role: StaffRole
+
+
+class UpdateUserDto(BaseModel):
+    email: EmailStr | None = None
+    firstName: str | None = Field(default=None, min_length=1, max_length=191)
+    lastName: str | None = Field(default=None, min_length=1, max_length=191)
+    phone: str | None = Field(default=None, max_length=191)
+    role: StaffRole | None = None
+    isActive: bool | None = None
+
+
+class ResetPasswordDto(BaseModel):
+    newPassword: str = Field(min_length=8, max_length=128)
+
+
+class NewsDto(BaseModel):
+    title: str = Field(min_length=1, max_length=191)
+    excerpt: str | None = Field(default=None, max_length=1000)
+    content: str | None = None
+    imageUrl: str | None = Field(default=None, max_length=191)
+    published: bool = False
+
+
+class UpdateNewsDto(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=191)
+    excerpt: str | None = Field(default=None, max_length=1000)
+    content: str | None = None
+    imageUrl: str | None = Field(default=None, max_length=191)
+    published: bool | None = None
+
+
+class EventDto(BaseModel):
+    title: str = Field(min_length=1, max_length=191)
+    description: str | None = None
+    eventDate: str = Field(min_length=10)  # "2026-10-05T18:00" (hora del club) o ISO con zona
+    location: str | None = Field(default=None, max_length=191)
+    isPublic: bool = True
+
+
+class UpdateEventDto(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=191)
+    description: str | None = None
+    eventDate: str | None = Field(default=None, min_length=10)
+    location: str | None = Field(default=None, max_length=191)
+    isPublic: bool | None = None
+
+
+class CancelFeeDto(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 

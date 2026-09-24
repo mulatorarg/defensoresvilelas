@@ -14,14 +14,17 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+from . import csp
 from .config import ENABLE_DOCS, FRONTEND_DIST_PATH, FRONTEND_URL, RECURSOS_DIR
-from .database import engine
+from .database import SessionLocal, engine
+from .deps import get_club_config
 from .observability import logger, request_context, setup_logging, setup_sentry
 from .routers import (
     attendances,
     audit_log,
     auth,
     categories,
+    content,
     disciplines,
     enrollments,
     fee_types,
@@ -34,6 +37,8 @@ from .routers import (
     reports,
     staff_portal,
     transactions,
+    uploads,
+    users,
 )
 
 setup_logging()
@@ -59,24 +64,6 @@ if FRONTEND_URL:
         allow_headers=["*"],
     )
 
-# CSP: Next (export estático) emite scripts y estilos inline, de ahí 'unsafe-inline'.
-# Igual limita el daño de un XSS: no se pueden cargar scripts externos, ni enviar
-# datos a otros dominios (connect-src/form-action), ni embeber el sitio en iframes.
-# img-src admite https: porque logos y fotos pueden ser URLs externas.
-CONTENT_SECURITY_POLICY = "; ".join([
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https:",
-    "font-src 'self' data:",
-    "connect-src 'self'",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "object-src 'none'",
-])
-
-
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -87,7 +74,8 @@ async def security_headers(request: Request, call_next):
     headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
     # Swagger UI carga JS/CSS de un CDN: sin CSP en la documentación
     if not request.url.path.startswith("/api/docs"):
-        headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        # Las páginas HTML ya traen su política con hashes (ver csp.py)
+        headers.setdefault("Content-Security-Policy", csp.DEFAULT_POLICY)
     # HSTS solo detrás de HTTPS (Nginx con certbot manda X-Forwarded-Proto)
     if request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https":
         headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -164,6 +152,9 @@ for module in (
     member_portal,
     staff_portal,
     public,
+    users,
+    uploads,
+    content,
 ):
     app.include_router(module.router)
 
@@ -180,7 +171,38 @@ app.mount("/recursos", StaticFiles(directory=_recursos), name="recursos")
 _dist = Path(FRONTEND_DIST_PATH)
 
 
-@app.get("/{full_path:path}", include_in_schema=False)
+@app.get("/socio/manifest.webmanifest", include_in_schema=False)
+def member_portal_manifest():
+    """Manifiesto de la PWA del portal del socio, con el nombre y colores del club."""
+    db = SessionLocal()
+    try:
+        config = get_club_config(db)
+        name, color = config.name, config.primaryColor or "#08a757"
+    finally:
+        db.close()
+    manifest = {
+        "name": f"{name} - Portal del socio",
+        "short_name": name[:12],
+        "description": f"Carnet digital y cuotas de {name}",
+        "start_url": "/socio/",
+        "scope": "/socio/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#05070e",
+        "theme_color": color,
+        "lang": "es-AR",
+        "icons": [
+            {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    return JSONResponse(manifest, media_type="application/manifest+json")
+
+
+# HEAD además de GET: el router de Next 16 hace los prefetch de páginas con HEAD
+# (con solo GET respondían 405 y cada navegación era una carga completa)
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
 def serve_frontend(full_path: str):
     if full_path.startswith(("api/", "recursos/")) or full_path in ("api", "recursos"):
         raise HTTPException(status_code=404, detail={"statusCode": 404, "message": "Not Found"})
@@ -197,14 +219,26 @@ def serve_frontend(full_path: str):
 
     candidate = (_dist / full_path).resolve() if full_path else index
     if full_path and candidate.is_file() and candidate.is_relative_to(_dist.resolve()):
-        return FileResponse(candidate)
+        return _file(candidate)
 
     # Rutas exportadas como carpeta (p. ej. /login -> login/index.html)
     as_dir_index = _dist / full_path / "index.html"
     if full_path and as_dir_index.is_file():
-        return FileResponse(as_dir_index)
+        return _file(as_dir_index)
     as_html = _dist / f"{full_path.rstrip('/')}.html"
     if full_path and as_html.is_file():
-        return FileResponse(as_html)
+        return _file(as_html)
 
-    return FileResponse(index)
+    return _file(index)
+
+
+def _file(path: Path) -> FileResponse:
+    response = FileResponse(path)
+    if path.suffix == ".html":
+        response.headers["Content-Security-Policy"] = csp.policy_for_html(path)
+        # Siempre se revalida: después de un deploy la página tiene otros hashes
+        response.headers["Cache-Control"] = "no-cache"
+    elif path.name == "sw.js":
+        # El service worker del portal tiene que actualizarse apenas cambia
+        response.headers["Cache-Control"] = "no-cache"
+    return response

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Request
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from .. import models, mp, serializers
 from ..config import (
@@ -11,7 +12,7 @@ from ..config import (
     QR_EXPIRES_MINUTES,
     QR_SECRET,
 )
-from ..deps import DbDep, MemberDep
+from ..deps import DbDep, MemberDep, get_club_config
 from ..errors import bad_request, not_found, too_many_requests, unauthorized
 from ..models import utcnow
 from ..schemas import ChangePinDto, LoginMemberDto
@@ -190,6 +191,36 @@ def create_preference(fee_id: str, request: Request, ctx: MemberDep, db: DbDep):
     fee.externalReference = result["preferenceId"]
     db.commit()
     return result
+
+
+@router.get("/me/payments")
+def get_payments(ctx: MemberDep, db: DbDep):
+    """Últimos pagos acreditados del socio (con acceso a su recibo)."""
+    payments = db.scalars(
+        select(models.Payment)
+        .where(models.Payment.memberId == ctx.member_id, models.Payment.status == "COMPLETED")
+        .options(selectinload(models.Payment.fee).selectinload(models.Fee.feeType))
+        .order_by(models.Payment.paidAt.desc())
+        .limit(24)
+    ).all()
+    return [
+        {
+            **serializers.payment(p),
+            "receiptNumber": p.id[-8:].upper(),
+            "period": p.fee.period if p.fee else None,
+            "concept": p.fee.feeType.name if p.fee and p.fee.feeType else "Cuota",
+        }
+        for p in payments
+    ]
+
+
+@router.get("/me/payments/{payment_id}")
+def get_payment_receipt(payment_id: str, ctx: MemberDep, db: DbDep):
+    """Recibo de un pago propio (un socio no puede ver pagos de otro)."""
+    pay = db.get(models.Payment, payment_id)
+    if not pay or pay.memberId != ctx.member_id or pay.status != "COMPLETED":
+        raise not_found("Pago no encontrado")
+    return serializers.payment_receipt(pay, get_club_config(db))
 
 
 @router.get("/me/card")

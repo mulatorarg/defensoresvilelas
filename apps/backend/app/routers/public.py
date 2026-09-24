@@ -2,11 +2,11 @@
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from .. import clock, models, serializers
+from .. import captcha, clock, models, serializers
 from ..deps import DbDep, get_club_config
 from ..errors import bad_request, conflict, not_found
 from ..ids import new_id
@@ -27,10 +27,12 @@ class RegisterMemberDto(BaseModel):
     categoryId: str | None = None
     # Honeypot: campo oculto en el formulario; un humano lo deja vacío
     website: str | None = None
+    # Token de Cloudflare Turnstile (solo si el captcha está configurado)
+    captchaToken: str | None = Field(default=None, max_length=4096)
 
 
 @router.post("/register", status_code=201)
-def register(dto: RegisterMemberDto, db: DbDep):
+def register(dto: RegisterMemberDto, request: Request, db: DbDep):
     """Alta de socio desde la landing.
 
     La primera cuota queda PENDIENTE: se paga en secretaría (o con Mercado Pago
@@ -39,6 +41,10 @@ def register(dto: RegisterMemberDto, db: DbDep):
     """
     if dto.website:
         raise bad_request("No pudimos procesar el registro.")
+    if captcha.enabled():
+        remote_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else None)
+        if not captcha.verify(dto.captchaToken, remote_ip):
+            raise bad_request("No pudimos verificar que no sos un robot. Probá de nuevo.")
 
     exists = db.scalar(select(models.Member.id).where(models.Member.dni == dto.dni.strip()))
     if exists:
@@ -106,8 +112,6 @@ def register(dto: RegisterMemberDto, db: DbDep):
     )
     db.add(fee)
     db.commit()
-    db.refresh(member)
-    db.refresh(fee)
 
     return {
         "member": {
@@ -146,6 +150,7 @@ def disciplines(db: DbDep):
             "name": d.name,
             "description": d.description,
             "icon": d.icon,
+            "imageUrl": d.imageUrl,
             "categories": [
                 {
                     "id": c.id,

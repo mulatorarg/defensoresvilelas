@@ -10,7 +10,8 @@ from ..audit import audit
 from ..deps import DbDep, StaffContext, require_roles
 from ..errors import bad_request, conflict, not_found
 from ..ids import new_id
-from ..schemas import GenerateFeesDto
+from ..models import utcnow
+from ..schemas import CancelFeeDto, GenerateFeesDto
 from ..utils import parse_datetime
 
 router = APIRouter(prefix="/api/fees", tags=["fees"])
@@ -173,4 +174,25 @@ def find_one(fee_id: str, db: DbDep, ctx: StaffContext = Roles):
     fee = db.get(models.Fee, fee_id)
     if not fee:
         raise not_found("Cuota no encontrada")
+    return serializers.fee_detail(fee)
+
+
+@router.post("/{fee_id}/cancel")
+def cancel(fee_id: str, dto: CancelFeeDto, db: DbDep, ctx: StaffContext = Roles):
+    """Anula una cuota generada por error. Solo si no tiene pagos: una cuota con
+    pagos se corrige anulando el movimiento o registrando la diferencia."""
+    fee = db.get(models.Fee, fee_id)
+    if not fee:
+        raise not_found("Cuota no encontrada")
+    if fee.status == "CANCELLED":
+        raise bad_request("La cuota ya está anulada")
+    if any(p.status == "COMPLETED" for p in fee.payments):
+        raise bad_request("La cuota tiene pagos registrados: no se puede anular")
+
+    fee.status = "CANCELLED"
+    fee.cancelledAt = utcnow()
+    fee.cancelledBy = ctx.user.get("sub")
+    fee.cancelReason = dto.reason.strip()
+    audit(db, ctx, "CANCEL", "fee", fee.id, {"period": fee.period, "amount": fee.amount, "reason": fee.cancelReason})
+    db.commit()
     return serializers.fee_detail(fee)

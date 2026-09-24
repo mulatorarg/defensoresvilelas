@@ -2,17 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  getPublicDisciplines,
-  getPublicEvents,
-  getPublicNews,
-  getPublicClub,
-} from '../lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { CreditCard, Menu, QrCode, Shirt, X } from 'lucide-react';
+import { getPublicDisciplines, getPublicEvents, getPublicNews } from '../lib/api';
+import { usePublicClub } from '../lib/queries';
+import { Providers } from '../components/Providers';
 import RegistroSocio from './RegistroSocio';
 import { formatDate } from '../lib/dates';
 
 interface PublicTenant {
   name: string;
+  heroImageUrl?: string | null;
+  onlinePayments?: boolean;
+  turnstileSiteKey?: string | null;
   legalName?: string | null;
   logoUrl?: string | null;
   primaryColor?: string | null;
@@ -34,6 +36,7 @@ interface PublicDiscipline {
   name: string;
   description?: string | null;
   icon?: string | null;
+  imageUrl?: string | null;
   categories: PublicCategory[];
 }
 
@@ -60,19 +63,29 @@ const NAV_LINKS = [
   { href: '#asociate', label: 'Asociate' },
 ];
 
-/* Fotos placeholder (Unsplash) — reemplazar por fotos reales del club */
+/* Fotos placeholder (Unsplash) - reemplazar por fotos reales del club.
+ * Se sirven en varios anchos (srcset): el navegador baja la que corresponde a
+ * la pantalla en lugar de la de 1800 px siempre. */
 const UNSPLASH = (id: string, w = 900) =>
   `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=60`;
 
-const HERO_PHOTO = UNSPLASH('photo-1459865264687-595d652de67e', 1800);
+function photoSet(id: string, widths: number[]) {
+  return {
+    src: UNSPLASH(id, widths[widths.length - 1]),
+    srcSet: widths.map((w) => `${UNSPLASH(id, w)} ${w}w`).join(', '),
+  };
+}
 
+const HERO_PHOTO = photoSet('photo-1459865264687-595d652de67e', [640, 1024, 1440, 1800]);
+
+const SPORT_WIDTHS = [400, 600, 900];
 const SPORT_PHOTOS: Array<[RegExp, string]> = [
-  [/f[uú]t|soccer/i, UNSPLASH('photo-1574629810360-7efbbe195018')],
-  [/b[aá]squet|basket/i, UNSPLASH('photo-1546519638-68e109498ffc')],
-  [/v[oó]ley|volley/i, UNSPLASH('photo-1554068865-24cecd4e34b8')],
-  [/hockey|hoquey/i, UNSPLASH('photo-1580748141549-71748dbe0bdc')],
+  [/f[uú]t|soccer/i, 'photo-1574629810360-7efbbe195018'],
+  [/b[aá]squet|basket/i, 'photo-1546519638-68e109498ffc'],
+  [/v[oó]ley|volley/i, 'photo-1554068865-24cecd4e34b8'],
+  [/hockey|hoquey/i, 'photo-1580748141549-71748dbe0bdc'],
 ];
-const DEFAULT_SPORT_PHOTO = UNSPLASH('photo-1461896836934-ffe607ba8211');
+const DEFAULT_SPORT_PHOTO = 'photo-1461896836934-ffe607ba8211';
 
 const LIFE_PHOTOS = [
   UNSPLASH('photo-1529900748604-07564a03e7a6', 1200),
@@ -88,7 +101,7 @@ const NEWS_PHOTOS = [
 
 function sportPhoto(name: string) {
   const match = SPORT_PHOTOS.find(([re]) => re.test(name));
-  return match ? match[1] : DEFAULT_SPORT_PHOTO;
+  return photoSet(match ? match[1] : DEFAULT_SPORT_PHOTO, SPORT_WIDTHS);
 }
 
 const gradientText = {
@@ -138,28 +151,28 @@ function SectionHeader({
 }
 
 export default function HomePage() {
-  const [tenant, setTenant] = useState<PublicTenant>({ name: 'Nuestro Club' });
-  const [disciplines, setDisciplines] = useState<PublicDiscipline[]>([]);
-  const [news, setNews] = useState<PublicNews[]>([]);
-  const [events, setEvents] = useState<PublicEvent[]>([]);
+  return (
+    <Providers>
+      <Landing />
+    </Providers>
+  );
+}
+
+function Landing() {
+  const { data: club } = usePublicClub();
+  const tenant: PublicTenant = club ?? { name: 'Nuestro Club' };
+  const { data: disciplines = [] } = useQuery<PublicDiscipline[]>({ queryKey: ['public', 'disciplines'], queryFn: getPublicDisciplines });
+  const { data: news = [] } = useQuery<PublicNews[]>({ queryKey: ['public', 'news'], queryFn: () => getPublicNews(3) });
+  const { data: events = [] } = useQuery<PublicEvent[]>({ queryKey: ['public', 'events'], queryFn: () => getPublicEvents(4) });
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    getPublicClub()
-      .then((t: PublicTenant) => {
-        setTenant(t);
-        if (t.primaryColor) {
-          document.documentElement.style.setProperty('--color-primary', t.primaryColor);
-        }
-        if (t.secondaryColor) {
-          document.documentElement.style.setProperty('--color-secondary', t.secondaryColor);
-        }
-      })
-      .catch(() => {});
-    getPublicDisciplines().then(setDisciplines).catch(() => {});
-    getPublicNews(3).then(setNews).catch(() => {});
-    getPublicEvents(4).then(setEvents).catch(() => {});
-  }, []);
+    if (tenant.primaryColor) document.documentElement.style.setProperty('--color-primary', tenant.primaryColor);
+    if (tenant.secondaryColor) document.documentElement.style.setProperty('--color-secondary', tenant.secondaryColor);
+  }, [tenant.primaryColor, tenant.secondaryColor]);
+
+  // Fotos propias del club (Configuración / Disciplinas); si no hay, las genéricas
+  const hero = tenant.heroImageUrl ? { src: tenant.heroImageUrl, srcSet: undefined } : HERO_PHOTO;
 
   // Reveal on scroll — se re-observa cuando llega contenido de la API
   useEffect(() => {
@@ -239,11 +252,12 @@ export default function HomePage() {
           </nav>
 
           <button
-            className="px-2 text-2xl leading-none text-white/80 md:hidden"
-            aria-label="Abrir menú"
+            className="p-2 text-white/80 md:hidden"
+            aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
           >
-            ☰
+            {menuOpen ? <X className="h-6 w-6" aria-hidden /> : <Menu className="h-6 w-6" aria-hidden />}
           </button>
         </div>
         {menuOpen && (
@@ -267,9 +281,15 @@ export default function HomePage() {
       <section className="relative flex min-h-svh items-center overflow-hidden">
         {/* foto de fondo con Ken Burns + overlays */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div
-            className="animate-kenburns absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${HERO_PHOTO})` }}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={hero.src}
+            srcSet={hero.srcSet}
+            sizes="100vw"
+            alt=""
+            fetchPriority="high"
+            decoding="async"
+            className="animate-kenburns absolute inset-0 h-full w-full object-cover"
           />
           <div className="absolute inset-0 bg-[#05070e]/72" />
           <div
@@ -405,9 +425,14 @@ export default function HomePage() {
                 style={{ transitionDelay: `${i * 0.08}s` }}
               >
                 <div className="relative h-36 overflow-hidden">
-                  <div
-                    className="h-full w-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                    style={{ backgroundImage: `url(${sportPhoto(d.name)})` }}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    {...(d.imageUrl ? { src: d.imageUrl } : sportPhoto(d.name))}
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-linear-to-t from-[#0a0d18] via-[#0a0d18]/30 to-transparent" />
                   <span className="absolute bottom-3 left-4 text-2xl drop-shadow">{d.icon}</span>
@@ -592,24 +617,34 @@ export default function HomePage() {
         <div className="mx-auto max-w-6xl px-5">
           <div className="grid gap-14 lg:grid-cols-2">
             <div>
-              <SectionHeader index="04" title="Asociate" subtitle="Hacete socio hoy, 100% online" />
+              <SectionHeader index="04" title="Asociate" subtitle="Hacete socio hoy desde la web" />
               <p className="reveal -mt-6 max-w-md text-sm leading-relaxed text-white/50">
                 Ser socio es mucho más que una cuota: es bancar al club del
-                barrio, tener tu carnet digital con QR, descuentos en la tienda
-                y pagar todo online, sin filas ni vueltas.
+                barrio, tener tu carnet digital con QR y seguir tus cuotas
+                desde el celular.
               </p>
               <div className="mt-9 space-y-4">
-                {[
-                  ['🎽', 'Todas las disciplinas', 'Una sola cuota social, acceso completo a las actividades del club.'],
-                  ['📱', 'Carnet digital con QR', 'Tu credencial siempre en el teléfono, con acceso al predio y beneficios.'],
-                  ['💳', 'Pagos 100% online', 'Cuotas y aranceles online, sin filas ni efectivo.'],
-                ].map(([icon, title, desc], i) => (
+                {(
+                  [
+                    [Shirt, 'Todas las disciplinas', 'Una sola cuota social, acceso completo a las actividades del club.'],
+                    [QrCode, 'Carnet digital con QR', 'Tu credencial siempre en el teléfono, con acceso al predio y beneficios.'],
+                    [
+                      CreditCard,
+                      tenant.onlinePayments ? 'Pagos online' : 'Cuotas a la vista',
+                      tenant.onlinePayments
+                        ? 'Pagá tus cuotas con Mercado Pago desde el portal del socio.'
+                        : 'Consultá tus cuotas desde el portal y pagalas en secretaría.',
+                    ],
+                  ] as const
+                ).map(([Icon, title, desc], i) => (
                   <div
                     key={title}
                     className="reveal flex items-start gap-5 rounded-3xl border border-white/8 bg-white/3 p-6 transition-colors hover:border-white/20"
                     style={{ transitionDelay: (i * 0.1) + 's' }}
                   >
-                    <span className="text-2xl">{icon}</span>
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary" aria-hidden>
+                      <Icon className="h-5 w-5" />
+                    </span>
                     <div>
                       <h3 className="font-display text-[15px] font-bold">{title}</h3>
                       <p className="mt-1 text-[13px] leading-relaxed text-white/45">{desc}</p>
@@ -620,7 +655,7 @@ export default function HomePage() {
             </div>
 
             <div className="reveal">
-              <RegistroSocio disciplines={disciplines} monthlyFee={tenant.monthlyFee} />
+              <RegistroSocio disciplines={disciplines} monthlyFee={tenant.monthlyFee} turnstileSiteKey={tenant.turnstileSiteKey} />
             </div>
           </div>
         </div>

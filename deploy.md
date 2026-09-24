@@ -92,6 +92,9 @@ QR_SECRET=................................
 # SECRETS_KEY=................................
 # Opcional: 1 para ver /api/docs en producción (por defecto apagado)
 # ENABLE_DOCS=0
+# Opcional: captcha del alta online (Cloudflare Turnstile, gratis). Sin las dos claves no se usa.
+# TURNSTILE_SITE_KEY=................................
+# TURNSTILE_SECRET_KEY=................................
 
 # URLs públicas
 FRONTEND_URL=https://defensores.yacarestudio.com
@@ -116,7 +119,7 @@ sudo certbot --nginx -d defensores.yacarestudio.com
 
 (DNS: registro A de `defensores.yacarestudio.com` → IP del VPS.)
 
-Cuando cambia `nginx.conf` en el repo (por ejemplo, el rate limit del alta online), volver a copiarlo y recargar. Si certbot ya agregó el bloque 443, conviene editar el archivo de `sites-available` a mano con los cambios en lugar de pisarlo. Los headers de seguridad (CSP, HSTS, etc.) los pone la app: si el archivo del VPS todavía tiene `add_header X-Frame-Options ...`, sacarlo.
+Cuando cambia `nginx.conf` en el repo (por ejemplo, el rate limit del alta online o el `X-Request-ID`), volver a copiarlo y recargar. Si certbot ya agregó el bloque 443, conviene editar el archivo de `sites-available` a mano con los cambios en lugar de pisarlo. Los headers de seguridad (CSP, HSTS, etc.) los pone la app: si el archivo del VPS todavía tiene `add_header X-Frame-Options ...`, sacarlo.
 
 ## 3. Primer deploy y siguientes
 
@@ -130,6 +133,7 @@ El workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
 2. Buildea `apps/backend/Dockerfile` (compila el frontend adentro) y pushea `latest` + SHA a GHCR.
 3. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml` (inyectándole la imagen `ghcr.io/<repo>:latest`; cada build publica además el tag `<sha>` para rollbacks) y `scripts/backup.sh`.
 4. `docker compose pull && up -d`: al arrancar, `db_init` aplica las migraciones de Alembic y `seed` deja la config del club + el admin (idempotentes: nunca pisan datos).
+   Antes de levantar corre `chown` sobre `recursos/` con la propia imagen como root: la app corre con un usuario sin privilegios (`app`, UID 1000) y tiene que poder escribir las fotos que se suben. No hace falta sudo en el VPS.
 
 También se puede disparar a mano desde la pestaña Actions (`workflow_dispatch`).
 
@@ -147,6 +151,8 @@ Si una migración falla (por ejemplo, por datos duplicados que impiden crear un 
 Después: entrar a `/login` con `ADMIN_EMAIL` / `ADMIN_PASSWORD` y completar la configuración del club (logo, colores, cuota social, credenciales de Mercado Pago) vía `PATCH /api/club/config`.
 
 ## 4. La carpeta `recursos/`
+
+Las imágenes subidas desde el admin se guardan como WEBP en `recursos/socios/`, `recursos/club/` (logo, portada de la web y fotos de disciplinas) y `recursos/noticias/`. Entran en el backup de `scripts/backup.sh`.
 
 Volumen montado en `/app/recursos` dentro del contenedor y servido por la API en `https://.../recursos/...`. Ahí vive todo lo que debe **sobrevivir a los deploys**: fotos de socios, escudo, documentos. Ejemplo: subir `recursos/socios/00001.jpg` al VPS y asignar `photoUrl: /recursos/socios/00001.jpg` al socio.
 

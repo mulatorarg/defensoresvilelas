@@ -75,3 +75,28 @@ export function formatDateTime(value?: string | Date | null): string {
     hourCycle: 'h23',
   });
 }
+
+/**
+ * Instante (ISO UTC) a valor de <input type="datetime-local"> en hora del club:
+ * "2026-10-05T21:00:00.000Z" -> "2026-10-05T18:00". La API interpreta ese valor
+ * (sin zona) como hora del club al guardarlo.
+ */
+export function toClubDateTimeInput(value?: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: CLUB_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}

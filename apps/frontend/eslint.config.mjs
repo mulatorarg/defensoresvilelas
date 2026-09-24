@@ -10,9 +10,9 @@ export default defineConfig([
     // (usa context.getFilename, eliminado): se fija a mano.
     settings: { react: { version: '19.3' } },
     rules: {
-      // Las páginas del admin cargan datos con fetch dentro de useEffect.
-      // Queda como advertencia hasta migrar a una capa de datos (ver propuestas.md).
-      'react-hooks/set-state-in-effect': 'warn',
+      // Los datos se cargan con TanStack Query (lib/queries.ts), no con fetch +
+      // setState dentro de useEffect: la regla queda como error.
+      'react-hooks/set-state-in-effect': 'error',
     },
   },
   {

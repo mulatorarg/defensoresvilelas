@@ -6,11 +6,14 @@ from sqlalchemy.exc import IntegrityError
 
 from app import models
 from app.ids import new_id
-from app.migrate import current_revision
+from alembic.script import ScriptDirectory
+
+from app.migrate import alembic_config, current_revision
 
 
 def test_base_en_la_ultima_migracion():
-    assert current_revision() == "0002"
+    head = ScriptDirectory.from_config(alembic_config()).get_current_head()
+    assert current_revision() == head
 
 
 # --- 2.2 Uniques ----------------------------------------------------------

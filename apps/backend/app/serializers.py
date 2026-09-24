@@ -8,7 +8,13 @@ from decimal import Decimal
 from typing import Any
 
 from . import crypto, models
-from .config import CLUB_TIMEZONE
+from .config import (
+    CLUB_TIMEZONE,
+    MERCADO_PAGO_ACCESS_TOKEN,
+    MERCADO_PAGO_WEBHOOK_SECRET,
+    TURNSTILE_SECRET_KEY,
+    TURNSTILE_SITE_KEY,
+)
 
 
 def iso(dt: datetime | None) -> str | None:
@@ -44,6 +50,7 @@ def club_public(c: models.ClubConfig) -> dict:
         "name": c.name,
         "legalName": c.legalName,
         "logoUrl": c.logoUrl,
+        "heroImageUrl": c.heroImageUrl,
         "primaryColor": c.primaryColor,
         "secondaryColor": c.secondaryColor,
         "address": c.address,
@@ -55,6 +62,14 @@ def club_public(c: models.ClubConfig) -> dict:
         "website": c.website,
         "monthlyFee": dec(c.monthlyFee),
         "timezone": CLUB_TIMEZONE,
+        # Captcha del alta online: la landing lo muestra si hay clave de sitio
+        "turnstileSiteKey": TURNSTILE_SITE_KEY if TURNSTILE_SECRET_KEY else None,
+        # Pago online habilitado: hay access token y secreto de webhook (sin el
+        # secreto el webhook rechaza las notificaciones y el pago no se acredita)
+        "onlinePayments": bool(
+            (c.mpAccessToken or MERCADO_PAGO_ACCESS_TOKEN)
+            and (c.mpWebhookSecret or MERCADO_PAGO_WEBHOOK_SECRET)
+        ),
         "settings": parse_json(c.settings),
     }
 
@@ -102,6 +117,7 @@ def discipline_full(d: models.Discipline, categories: list[models.Category]) -> 
         "name": d.name,
         "description": d.description,
         "icon": d.icon,
+        "imageUrl": d.imageUrl,
         "isActive": d.isActive,
         "createdAt": iso(d.createdAt),
         "updatedAt": iso(d.updatedAt),
@@ -210,6 +226,8 @@ def fee_base(f: models.Fee) -> dict:
         "status": f.status,
         "description": f.description,
         "externalReference": f.externalReference,
+        "cancelledAt": iso(f.cancelledAt),
+        "cancelReason": f.cancelReason,
         "createdAt": iso(f.createdAt),
         "updatedAt": iso(f.updatedAt),
     }
@@ -285,4 +303,34 @@ def transaction(t: models.Transaction) -> dict:
         "createdBy": t.createdBy,
         "createdAt": iso(t.createdAt),
         "updatedAt": iso(t.updatedAt),
+    }
+
+
+def payment_receipt(p: models.Payment, config: models.ClubConfig) -> dict:
+    """Datos del recibo de un pago (admin y portal del socio)."""
+    fee = p.fee
+    return {
+        **payment(p),
+        "receiptNumber": p.id[-8:].upper(),
+        "member": member_ref(p.member, with_dni=True) if p.member else None,
+        "memberNumber": p.member.memberNumber if p.member else None,
+        "fee": {
+            "id": fee.id,
+            "period": fee.period,
+            "concept": fee.feeType.name if fee.feeType else "Cuota",
+            "category": f"{fee.category.discipline.name} {fee.category.name}" if fee.category else None,
+            "amount": dec(fee.amount),
+            "paidAmount": dec(fee.paidAmount),
+            "balance": dec(fee.amount - (fee.paidAmount or Decimal("0"))),
+            "status": fee.status,
+        } if fee else None,
+        "club": {
+            "name": config.name,
+            "legalName": config.legalName,
+            "document": config.document,
+            "address": config.address,
+            "phone": config.phone,
+            "email": config.email,
+            "logoUrl": config.logoUrl,
+        },
     }

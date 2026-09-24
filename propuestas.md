@@ -2,7 +2,9 @@
 
 Revisión integral del proyecto (backend FastAPI + frontend Next.js) al 2026-09-23. Complementa a `docs/propuesta-mejoras.md` (escrito durante el port desde NestJS): acá se prioriza sobre el código actual y se indica qué ítems de aquel documento siguen vigentes.
 
-Etiquetas de prioridad: `BLOQUEANTE` (resolver antes del próximo deploy), `ALTA`, `MEDIA`, `BAJA`. Estado: `APLICADO` (hecho en esta revisión) o `PENDIENTE`.
+Etiquetas de prioridad: `BLOQUEANTE` (resolver antes del próximo deploy), `ALTA`, `MEDIA`, `BAJA`. Estado: `APLICADO`, `PENDIENTE`, `POSPUESTO` (por decisión del proyecto), `BLOQUEADO` (depende de terceros) o `DESCARTADO`.
+
+Estado al 2026-09-24: todas las propuestas están aplicadas salvo 1.1 (pospuesta hasta el dominio definitivo), 5.4 (bloqueada por typescript-eslint) y el deploy por SHA (descartado). Lo que depende del club está en la sección 7.
 
 ## 0. Aplicado en esta revisión
 
@@ -76,7 +78,8 @@ OJO, antes de pasar al dominio definitivo o cargar datos reales:
 - `POST /api/public/register` ya no crea el pago simulado (`simulacion-web`): la cuota queda `PENDING` y se paga en secretaría. El formulario dice "Asociarme" y el mensaje final aclara que la cuota está pendiente.
 - Honeypot: campo oculto `website`; si viene completo, 400.
 - `nginx.conf`: zona `register_zone` (5 altas por hora por IP, burst 3). Hay que copiar el archivo al VPS (ver deploy.md).
-- PENDIENTE: el socio se crea `ACTIVE` y puede entrar al portal. Si aparece spam, pasar a `PENDING_APPROVAL` o sumar un captcha (Cloudflare Turnstile). Con Mercado Pago real: crear la preferencia y registrar el pago solo desde el webhook.
+- APLICADO (2026-09-24): captcha opcional con Cloudflare Turnstile. Con `TURNSTILE_SITE_KEY` y `TURNSTILE_SECRET_KEY` en el `.env`, el formulario muestra el widget, el backend valida el token con Cloudflare (si Cloudflare no responde, rechaza) y la CSP habilita su dominio solo en ese caso. Sin las claves todo sigue igual. Probado de punta a punta con las claves de prueba de Cloudflare.
+- El socio se sigue creando `ACTIVE` (puede entrar al portal y crear su PIN). Con Mercado Pago real, el pago se registra solo desde el webhook.
 
 ### 1.3 Login del socio con datos semipúblicos - APLICADO
 
@@ -91,7 +94,7 @@ OJO, antes de pasar al dominio definitivo o cargar datos reales:
 - `POST /api/auth/logout-all` (cierra todas las sesiones propias) y `POST /api/auth/change-password` (cierra las demás y devuelve un token nuevo).
 - Los tokens del socio también llevan `tv` y se validan contra la base (socio dado de baja = 401).
 - Los tokens emitidos antes de este cambio (sin `tv`) siguen valiendo hasta vencer o hasta el primer `logout-all`.
-- PENDIENTE: UI para cambiar la contraseña del staff y ABM de usuarios (ver sección 4).
+- APLICADO: "Mi cuenta" (cambio de contraseña y cierre de sesiones) y pantalla de Usuarios (ver sección 4).
 
 ### 1.5 Credenciales de Mercado Pago en texto plano - APLICADO
 
@@ -110,7 +113,7 @@ CORS solo se habilita para el origen de `FRONTEND_URL` y sin `allow_credentials`
 
 La app pone los headers en todas las respuestas (así valen con o sin Nginx): `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` y `Strict-Transport-Security` cuando la request llega por HTTPS (`X-Forwarded-Proto`). Se sacaron de `nginx.conf` para no duplicarlos.
 
-La CSP permite `'unsafe-inline'` en scripts y estilos porque el export estático de Next los emite inline. Aun así bloquea scripts externos, envío de datos a otros dominios (`connect-src`, `form-action`) y el embebido en iframes. PENDIENTE (BAJA): CSP con hashes de los scripts inline generados en el build, para poder quitar `'unsafe-inline'`.
+APLICADO (2026-09-24): la CSP ya no permite `'unsafe-inline'` en scripts. Cada página HTML se sirve con los hashes SHA-256 de sus propios scripts inline (`csp.py`, calculados al servirla y cacheados por archivo); un script inyectado por un XSS no coincide con ningún hash. Los estilos siguen con `'unsafe-inline'` (atributos `style` de React; no ejecutan código). Las páginas HTML se sirven con `Cache-Control: no-cache` para que después de un deploy lleguen con sus hashes nuevos. Verificado en Chrome sin violaciones en las 16 pantallas.
 
 ### 1.9 Documentación de la API pública en producción - APLICADO
 
@@ -120,7 +123,7 @@ La CSP permite `'unsafe-inline'` en scripts y estilos porque el export estático
 
 - `Transaction.createdBy` y `Attendance.createdBy` se completan con el usuario.
 - Tabla `auditoria` (`audit.py`): pagos manuales, webhooks de MP, generación de cuotas, altas y bajas de movimientos de caja, edición y baja de socios, blanqueo de PIN, cambios de configuración del club (solo los nombres de campo, nunca los valores de las credenciales), cambio de contraseña y cierre de sesiones.
-- `GET /api/audit` (ADMIN, paginado, filtros `entity`, `entityId`, `userId`). PENDIENTE: pantalla en el admin.
+- `GET /api/audit` (ADMIN, paginado, filtros `entity`, `entityId`, `userId`, `action`) y pantalla `/admin/auditoria` con filtros y detalle de cada registro.
 
 ## 2. Estabilidad y consistencia de datos
 
@@ -175,7 +178,7 @@ Dashboard, reporte de cuotas, ingresos/egresos y cierre de caja devuelven string
 - `healthcheck` del servicio `app` en ambos compose (`docker compose ps` muestra `healthy`/`unhealthy`).
 - `observability.py`: request-id por request (respeta `X-Request-ID` entrante y lo devuelve), en todas las líneas de log, más una línea por request a `/api/*` con estado y duración.
 - Sentry o GlitchTip opcional con `SENTRY_DSN` (`sentry-sdk`, sin datos personales). Sin DSN no hace nada.
-- PENDIENTE (BAJA): que Nginx genere el `X-Request-ID` (`proxy_set_header X-Request-ID $request_id;`) para correlacionar con sus logs.
+- APLICADO: Nginx manda su `$request_id` como `X-Request-ID`: el mismo id aparece en el log de Nginx, en los de la app y en la respuesta.
 
 ### 2.9 Backups - APLICADO
 
@@ -185,93 +188,114 @@ Dashboard, reporte de cuotas, ingresos/egresos y cierre de caja devuelven string
 
 ## 3. Rendimiento y velocidad
 
-### 3.1 Índices faltantes - MEDIA, PENDIENTE
+Aplicado el 2026-09-24. Verificación: 58 tests de backend, migración 0003 probada con upgrade, downgrade y `alembic check`, `tsc`, `eslint` (0 errores, 5 advertencias preexistentes, antes 8), `next build` y una prueba de punta a punta en Chrome headless (13 pantallas del admin, recibo, portal del socio y landing sin errores de JavaScript, CSP ni red, más la subida de una imagen real desde la UI).
 
-- `socios (apellido, nombre)`: el listado ordena por apellido.
-- `cuotas (periodo)` y `cuotas (creado_en)`: filtros y orden del listado de cuotas.
-- `pagos (pagado_en)`: dashboard y cierre de caja suman por rango de fecha.
-- `inscripciones (socio_id)` ya lo cubre el unique; `asistencias (socio_id)` no tiene índice propio.
+### 3.1 Índices faltantes - APLICADO
 
-### 3.2 Búsqueda de socios - MEDIA, PENDIENTE
+Migración `0003`: `socios (apellido, nombre)`, `cuotas (periodo)`, `cuotas (creado_en)`, `cuotas (estado, fecha_vencimiento)` para morosidad, `pagos (estado, pagado_en)` para dashboard y cierre de caja, `asistencias (fecha)`. `asistencias (socio_id)` no hacía falta: InnoDB ya creó ese índice para la clave foránea.
 
-`LIKE '%texto%'` sobre nombre, apellido, DNI y email no usa índices. Con pocos miles de socios alcanza; si crece, un índice `FULLTEXT` sobre nombre y apellido, y búsqueda por prefijo (`LIKE 'texto%'`) en DNI.
+### 3.2 Búsqueda de socios - APLICADO
 
-### 3.3 Endpoints sin paginar - MEDIA, PENDIENTE
+- Solo números: DNI o número de socio por prefijo, que usa los índices únicos.
+- Texto: cada palabra debe aparecer en nombre, apellido o email ("juan per" encuentra a Juan Pérez), lo que además mejora la búsqueda.
+- El texto sigue con `LIKE '%...%'`: alcanza para algunos miles de socios. `FULLTEXT` no se agregó a propósito: el tokenizador de InnoDB ignora palabras de menos de 3 letras y las stopwords, lo que empeoraría la búsqueda de apellidos cortos; se revisa si el padrón crece mucho.
 
-`/api/attendances`, `/api/transactions`, `/api/reports/members` y `/api/reports/fees` devuelven todo. Los reportes con un año de datos serializan miles de filas con relaciones. Paginar o, para reportes, devolver solo agregados más exportación CSV.
+### 3.3 Endpoints sin paginar - APLICADO
 
-### 3.4 `db.refresh` innecesarios - BAJA, PENDIENTE
+- `/api/reports/members`, `/api/reports/fees` y `/api/reports/income-expense` paginan (`page`, `limit` hasta 200) y calculan los totales sobre todo el filtro en la base, no sobre la página.
+- Exportación CSV con todas las filas: `/api/reports/members.csv`, `fees.csv`, `cash.csv` (movimientos de caja y pagos de cuotas del rango) y `delinquency.csv`. Usan `;`, BOM UTF-8 y coma decimal para Excel en español, y protegen contra inyección de fórmulas.
+- `/api/transactions` y `/api/attendances` tienen tope (`limit`, 500 por defecto, máximo 2000). Las pantallas siempre filtran por día.
 
-Con `expire_on_commit=False`, el `db.refresh()` después de cada `commit()` agrega un round-trip por request de escritura. Se puede quitar donde no hay valores generados por la base.
+### 3.4 `db.refresh` innecesarios - APLICADO
 
-### 3.5 Workers y pool - BAJA, PENDIENTE
+Se quitaron los 23. Los valores generados en Python (ids, fechas, `onupdate`) ya quedan en el objeto, y las relaciones se cargan al usarlas. La suite cubre las respuestas de escritura.
 
-Producción corre `--workers 2` con el pool por defecto de SQLAlchemy (5 + 10 overflow por worker). Está bien para un club; si se agregan instancias en el mismo VPS, dimensionar `pool_size` y `max_connections` de MariaDB en conjunto.
+### 3.5 Workers y pool - APLICADO
 
-### 3.6 Frontend - MEDIA, PENDIENTE
+Pool configurable con `DB_POOL_SIZE` y `DB_MAX_OVERFLOW` (5 + 5 por worker). Con 2 workers son 20 conexiones como máximo por club, lejos del `max_connections` por defecto de MariaDB (151) aunque haya varios clubes en el VPS.
 
-- La landing carga fotos de Unsplash a 1800 px sin `srcset`: usar fotos propias en `recursos/` en varios tamaños y `loading="lazy"` fuera del primer pantallazo.
-- Socios, Cuotas y Asistencia vuelven a pedir `getDisciplines()` en cada visita (y Cuotas lo repite en cada cambio de filtro o página): con una capa de cache (ver 5.1) se pide una vez por sesión.
-- Cuotas pide también `getFeeTypes()` en cada cambio de filtro: separar la carga de catálogos de la del listado.
+### 3.6 Frontend - APLICADO
+
+- Landing: las fotos pasan de fondo CSS a `<img>` con `srcset` (de 400 a 1800 px según la pantalla), carga diferida en las tarjetas y prioridad alta en la foto principal. APLICADO (2026-09-24): foto de portada (Configuración) y foto por disciplina (Disciplinas) subidas por el club; la web las usa en lugar de las genéricas (migración `0004`). Falta que el club cargue las suyas.
+- Catálogos (disciplinas y tipos de cuota) con cache en memoria de 5 minutos, asociada al token e invalidada al modificarlos: Socios, Cuotas y Asistencia ya no los piden en cada visita o cambio de filtro.
+- Cuotas separa la carga de catálogos (una vez) de la del listado (por filtro y página).
+- Bug corregido: el router de Next 16 hace los prefetch con `HEAD` y la ruta que sirve la web solo aceptaba `GET` (respondía 405). El prefetch fallaba y cada navegación entre pantallas era una carga completa.
 
 ## 4. Funcionales
 
-| Prioridad | Propuesta | Detalle |
+| Estado | Propuesta | Qué se hizo |
 |---|---|---|
-| ALTA | Pantalla de configuración del club | `PATCH /api/club/config` existe pero no hay UI: hoy nombre, colores, cuota social y credenciales de MP solo se cambian por API. |
-| ALTA | Mercado Pago real en el portal del socio | El endpoint `/me/fees/{id}/mp-preference` ya existe; falta el botón "Pagar" y mostrar el resultado en `/socio/?status=...` (las URLs de retorno ya apuntan ahí). |
-| ALTA | Gestión de usuarios del staff | No hay ABM de usuarios; el cambio de contraseña ya tiene endpoint (`POST /api/auth/change-password`) pero no pantalla. |
-| MEDIA | Asistencia: editar la del día | Al abrir "Tomar asistencia" para una fecha ya cargada, precargar los presentes/ausentes existentes (hoy arranca todo en "presente" y pisa lo guardado). |
-| MEDIA | Asistencia: elegir fecha en el listado | La pantalla solo muestra la asistencia de hoy. |
-| MEDIA | Morosidad | Vista de socios con cuotas vencidas (por `fecha_vencimiento`), con total adeudado y contacto rápido por WhatsApp. |
-| MEDIA | Exportación | CSV/Excel de socios, cuotas y caja desde Reportes. |
-| MEDIA | Fotos de socios | Subida de foto (hoy es un campo de URL) guardando en `recursos/`, con recorte y compresión. |
-| MEDIA | Noticias y eventos | Los modelos y la landing existen, pero no hay ABM en el admin (solo el seed los carga). |
-| BAJA | Recibo de pago | PDF o imagen con los datos del pago para enviar al socio. |
-| BAJA | Anulación de cuotas | Estado `CANCELLED` existe en el frontend pero no hay forma de usarlo. |
+| APLICADO | Pantalla de configuración del club | `/admin/configuracion` (solo ADMIN): nombre, logo (subida), colores, cuota social, datos de contacto y credenciales de Mercado Pago (enmascaradas: solo se envían si se cambian). |
+| APLICADO | Mercado Pago en el portal del socio | Botón "Pagar" en cada cuota pendiente (visible solo si el club tiene access token y secreto de webhook: `onlinePayments` en `/api/club`) y aviso del resultado al volver (`/socio/?status=success\|pending\|failure`). En Cuotas del admin, "Link MP" copia el link para mandarlo al socio. OJO: no se probó contra Mercado Pago real; probar con credenciales de prueba antes de habilitarlo. |
+| APLICADO | Gestión de usuarios del staff | `/admin/usuarios` (solo ADMIN): alta, edición, rol, desactivación y contraseña nueva. Cambiar el rol, desactivar o blanquear la contraseña cierra las sesiones de ese usuario. No se puede quitar el último administrador activo ni quitarse el rol a uno mismo. "Mi cuenta" (clic en el usuario del menú): cambio de contraseña propia y cierre de sesión en todos los dispositivos. |
+| APLICADO | Asistencia: editar la del día | Al tomar asistencia de una categoría y fecha ya cargadas se precargan presentes, ausentes y notas (antes arrancaba todo en "presente" y pisaba lo guardado). |
+| APLICADO | Asistencia: elegir fecha en el listado | Selector de fecha con conteo de presentes y ausentes; "Tomar asistencia" abre con esa fecha. |
+| APLICADO | Morosidad | `/admin/morosidad`: socios activos con cuotas vencidas (por fecha de vencimiento o, sin ella, período anterior al mes actual), total adeudado, detalle por cuota, búsqueda, CSV y botón de WhatsApp con el mensaje armado (normaliza teléfonos locales: 0, 15, +54). |
+| APLICADO | Exportación | CSV de socios, cuotas y caja desde Reportes, y de morosidad desde su pantalla (ver 3.3). |
+| APLICADO | Fotos de socios | Subida con recorte cuadrado y compresión en el navegador. El servidor valida con Pillow, vuelve a codificar como WEBP sin metadatos (EXIF y GPS) y la guarda en `recursos/socios/`. Al reemplazarla, la anterior se borra. Mismo mecanismo para el logo (`recursos/club/`) y las noticias (`recursos/noticias/`). Se ve en la tabla de socios y en el carnet del portal. |
+| APLICADO | Noticias y eventos | `/admin/noticias`: noticias (borrador o publicada, imagen, slug único automático) y agenda de eventos (fecha y hora en hora del club, público o privado). |
+| APLICADO | Recibo de pago | `/admin/recibo/?id=...` desde cada pago en Cuotas: datos del club, del socio y de la cuota con saldo, número de recibo, "Imprimir o guardar PDF" (al imprimir se oculta el menú) y "Enviar por WhatsApp". |
+| APLICADO | Anulación de cuotas | "Anular" con motivo en cuotas sin pagos (`POST /api/fees/{id}/cancel`, queda en la auditoría). Las anuladas no suman en totales ni en morosidad, y no aceptan pagos. |
+
+Los pendientes que surgieron (pantalla de auditoría, recibo desde el portal del socio y fotos propias en la web) quedaron aplicados el 2026-09-24.
 
 ## 5. UI/UX
 
-### 5.1 Capa de datos en el frontend - MEDIA, PENDIENTE
+Aplicado el 2026-09-24. Verificación: `tsc`, `eslint` con 0 errores y 0 advertencias (la regla `react-hooks/set-state-in-effect` pasó de advertencia a error), `next build` y una prueba de punta a punta en Chrome headless: 16 pantallas sin errores de JavaScript, de red ni de CSP; trampa de foco y Escape en modales; errores de validación junto a cada campo; vista de celular en tarjetas sin scroll horizontal; manifiesto y service worker del portal; alta online con captcha real (claves de prueba de Cloudflare).
 
-Todas las páginas cargan datos con `fetch` dentro de `useEffect`, lo que la nueva regla `react-hooks/set-state-in-effect` marca como advertencia (quedó en `warn` en `eslint.config.mjs`). Migrar a TanStack Query resuelve eso y además agrega cache, reintentos, invalidación tras mutaciones y estados de carga consistentes.
+### 5.1 Capa de datos en el frontend - APLICADO
 
-### 5.2 Consistencia entre pantallas - MEDIA, PENDIENTE
+TanStack Query en todas las pantallas del admin, el portal del socio y la landing (`lib/queries.ts`: claves por recurso, catálogos compartidos con 5 minutos de vigencia, sin reintentos ante errores 4xx). Las mutaciones invalidan lo que corresponde (un pago refresca cuotas, morosidad, caja, dashboard y reportes). Los listados paginados mantienen los datos anteriores mientras cargan la página siguiente. Al cerrar sesión se vacía la cache. Reemplaza a la cache casera de catálogos de la sección 3. Ninguna pantalla carga datos con `fetch` + `setState` dentro de `useEffect`.
 
-Socios y Disciplinas ya usan el kit nuevo (toasts, `confirmAction`, `PageHeader`, `EmptyState`, skeletons). Cuotas, Caja, Asistencia y Reportes siguen con `alert()`/`confirm()` del navegador, "Cargando..." en texto plano y montos sin formato (`$12000.00` en lugar de `$ 12.000`). Llevarlas al mismo kit y usar un único `formatMoney`.
+### 5.2 Consistencia entre pantallas - APLICADO
 
-### 5.3 Íconos - BAJA, PENDIENTE
+Todas las pantallas usan el mismo kit: `PageHeader`, toasts, `confirmAction`, esqueletos de carga (`SkeletonRows`), estado de error con "Reintentar" (`ErrorState`), `Pagination` y `formatMoney` único (`lib/money.ts`). No queda ningún `alert()`, `confirm()` ni "Cargando..." en texto plano en el admin.
 
-El admin usa emojis como íconos (dashboard, acciones rápidas, estados vacíos, confirmaciones) y paths SVG copiados a mano en el layout. Reemplazar por `lucide-react`.
+### 5.3 Íconos - APLICADO
 
-### 5.4 TypeScript 7 - BAJA, PENDIENTE
+`lucide-react` en el menú, el dashboard, las acciones de las tablas, los modales, los estados vacíos, la landing, el portal y el recibo. No quedan emojis de interfaz (los que se muestran son datos: el ícono que el club elige para cada disciplina).
 
-TypeScript 7.0.2 (compilador nativo) ya compila el proyecto con Next 16.3, pero typescript-eslint todavía no soporta su API. Cuando lo haga, subir `typescript` a `^7`. Mientras tanto, la alternativa oficial (alias `typescript` -> `@typescript/typescript6` y `@typescript/native` para `tsc`) no aporta velocidad al build de Next, que seguiría usando la API de TS 6.
+### 5.4 TypeScript 7 - BLOQUEADO (externo)
 
-### 5.5 Formularios - MEDIA, PENDIENTE
+typescript-eslint 8.70 sigue pidiendo `typescript <6.1`. Dependabot tiene ignorada la actualización mayor de TypeScript hasta que lo soporte.
 
-- Validación en el cliente (react-hook-form + zod) con errores junto a cada campo; hoy el error de la API aparece como toast genérico.
-- `MemberForm` siempre envía `playerProfile` con campos vacíos, lo que crea un perfil de jugador para cada socio aunque no juegue. Enviarlo solo si algún campo tiene valor.
-- El período de cuotas se escribe a mano (`AAAA-MM`): usar `<input type="month">`.
-- `FeeGenerator` y la toma de asistencia ofrecen tipos de cuota y categorías inactivos: filtrarlos.
+### 5.5 Formularios - APLICADO
 
-### 5.6 Accesibilidad - BAJA, PENDIENTE
+- react-hook-form + zod (`lib/validation.ts`) en todos los formularios: socio, disciplina, categoría, tipo de cuota, generador de cuotas, pago (no deja cobrar más que el saldo ni con fecha futura), movimiento de caja, inscripción, usuarios, noticias, eventos, configuración, portal del socio y alta online. Los errores aparecen junto a cada campo, con `aria-invalid` y `aria-describedby`.
+- `MemberForm` manda el perfil deportivo solo si tiene algún dato (o si ya existía).
+- Períodos con `<input type="month">`.
+- El generador de cuotas, la inscripción y la toma de asistencia ofrecen solo tipos de cuota, disciplinas y categorías activas.
 
-- Los modales no atrapan el foco ni lo devuelven al cerrar.
-- Los inputs del portal del socio y del alta online usan solo `placeholder` como etiqueta.
-- Las tablas de socios, cuotas y reportes no tienen versión mobile (scroll horizontal): usar tarjetas en pantallas chicas.
+### 5.6 Accesibilidad - APLICADO
 
-### 5.7 Portal del socio como PWA - MEDIA, PENDIENTE
+- Modales y confirmaciones: foco atrapado (Tab y Shift+Tab), Escape cierra, el foco vuelve al botón que los abrió, `aria-modal` y título asociado (`lib/useFocusTrap.ts`).
+- Etiquetas visibles y asociadas (`htmlFor`) en todos los campos, incluidos el portal del socio y el alta online (antes solo `placeholder`).
+- Botones de solo ícono con `aria-label`; los de las categorías se ven también con teclado y en celular (antes solo al pasar el mouse).
+- Toasts anunciados a lectores de pantalla (`aria-live`).
+- Socios y cuotas se ven como tarjetas en pantallas chicas; los reportes usan `DataList` (tabla en escritorio, tarjetas en celular). En celular, los modales se abren desde abajo.
 
-El carnet con QR es el caso de uso más frecuente del socio. Un `manifest.webmanifest` y un service worker mínimo permiten "instalar" el portal y abrir el carnet más rápido en la puerta del club.
+### 5.7 Portal del socio como PWA - APLICADO
+
+- Manifiesto dinámico (`/socio/manifest.webmanifest`, con el nombre y color del club) e íconos (192, 512 y maskable).
+- Service worker (`/sw.js`, scope `/socio/`): páginas del portal con red primero y copia sin conexión, recursos de Next con cache primero, la API nunca se cachea (lleva el token y datos personales).
+- "Instalar" desde el navegador abre directo el carnet. Sin señal, abre la última versión del portal y avisa que el QR se actualiza al volver la conexión (el QR vence a los 5 minutos, así que no se puede guardar).
+- Además: el socio ve sus últimos pagos y abre o descarga el recibo de cada uno (`/socio/recibo/`).
 
 ## 6. Infraestructura
 
-| Prioridad | Propuesta |
+| Estado | Propuesta |
 |---|---|
-| APLICADO | CI con tests y lint antes del build de la imagen (ver 2.7). |
-| MEDIA | Deploy por tag SHA en lugar de `:latest` (el workflow ya publica ambos): permite rollback con un `sed` y deja claro qué versión corre. |
-| MEDIA | Correr el contenedor con un usuario sin privilegios (`USER app` en el Dockerfile). |
-| MEDIA | `python:3.14-slim`: verificar compatibilidad de dependencias con Python 3.14 en local antes de cambiar la imagen. |
-| BAJA | `.dockerignore` excluye `*.md`: correcto hoy, pero si algún README pasa a ser parte del build conviene listarlo explícitamente. |
-| BAJA | Dependabot o Renovate para mantener dependencias y GitHub Actions actualizadas con PRs automáticos. |
+| APLICADO | CI con tests y lint antes del build de la imagen (ver 2.7). Corre desde el workflow de deploy. |
+| DESCARTADO | Deploy por tag SHA en lugar de `:latest`: el deploy usa `:latest` por decisión del proyecto (queda igual que el resto de los servicios del VPS). El workflow publica también el tag SHA, así que el rollback sigue siendo posible editando la línea `image:` (ver deploy.md). |
+| APLICADO | Contenedor sin privilegios: usuario `app` (UID 1000, configurable con `APP_UID`). El deploy corrige el dueño de `recursos/` con la propia imagen antes de levantarla (el VPS no necesita sudo). |
+| APLICADO | `python:3.14-slim`: todas las dependencias tienen wheels para 3.14 y la suite pasa con Python 3.14.7 tratando las advertencias de deprecación como errores. El CI también usa 3.14. |
+| SIN CAMBIOS | `.dockerignore` excluye `*.md`: ningún Markdown forma parte del build. |
+| APLICADO | Dependabot (`.github/dependabot.yml`): pip, npm, GitHub Actions y la imagen de Docker, semanal y con las versiones menores agrupadas. Como el CI corre solo desde el deploy, antes de mergear un PR hay que correr `pytest` y el build localmente. |
+
+## 7. Pendientes que dependen del club
+
+- Rotar los secretos y limpiar `.env.local.example` al pasar al dominio definitivo (1.1).
+- Cargar las fotos propias: portada en Configuración y una por disciplina en Disciplinas (la web ya las usa en lugar de las genéricas).
+- Mercado Pago: probar con credenciales de prueba antes de cargar las reales.
+- Captcha: si aparece spam en el alta online, cargar las claves de Cloudflare Turnstile en el `.env` (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`).
+- Operación del VPS: copiar `nginx.conf` (rate limit del alta y `X-Request-ID`), programar el cron de `scripts/backup.sh` y configurar el remoto de rclone.

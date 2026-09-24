@@ -1,4 +1,17 @@
+import type { Discipline, FeeType } from './types';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+
+/** Error de la API con su código HTTP (TanStack Query no reintenta los 4xx). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
@@ -24,12 +37,12 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     // Recarga completa a propósito: descarta el estado de la sesión vencida
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/login/?returnTo=${returnTo}`);
-    throw new Error('Tu sesión expiró. Volvé a ingresar.');
+    throw new ApiError('Tu sesión expiró. Volvé a ingresar.', 401);
   }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: 'Error desconocido' }));
-    throw new Error(errorMessage(error.message) ?? 'Error en la petición');
+    throw new ApiError(errorMessage(error.message) ?? 'Error en la petición', res.status);
   }
 
   return res.json();
@@ -93,7 +106,7 @@ export function resetMemberPin(id: string) {
 
 // Disciplinas
 export function getDisciplines() {
-  return apiFetch('/api/disciplines');
+  return apiFetch('/api/disciplines') as Promise<Discipline[]>;
 }
 
 export function createDiscipline(data: Record<string, unknown>) {
@@ -160,7 +173,7 @@ export function deleteEnrollment(id: string) {
 
 // Tipos de cuota
 export function getFeeTypes() {
-  return apiFetch('/api/fee-types');
+  return apiFetch('/api/fee-types') as Promise<FeeType[]>;
 }
 
 export function createFeeType(data: Record<string, unknown>) {
@@ -205,7 +218,19 @@ export function generateFees(data: Record<string, unknown>) {
   });
 }
 
+export function cancelFee(id: string, reason: string) {
+  return apiFetch(`/api/fees/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+}
+
 // Pagos
+export function getPaymentReceipt(id: string) {
+  return apiFetch(`/api/payments/${id}`);
+}
+
 export function createPayment(data: Record<string, unknown>) {
   return apiFetch('/api/payments', {
     method: 'POST',
@@ -237,6 +262,38 @@ export function getFeesReport(filters: Record<string, unknown> = {}) {
 
 export function getIncomeExpenseReport(filters: Record<string, unknown> = {}) {
   return apiFetch(`/api/reports/income-expense${buildQueryString(filters)}`);
+}
+
+export function getDelinquencyReport() {
+  return apiFetch('/api/reports/delinquency');
+}
+
+/**
+ * Descarga un archivo de la API (CSV de reportes) con el token de la sesión:
+ * un <a href> directo no mandaría el header Authorization.
+ */
+export async function downloadFile(path: string, fallbackName: string) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('accessToken') ?? ''}` },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ message: 'No se pudo descargar' }));
+    throw new Error(errorMessage(error.message) ?? 'No se pudo descargar');
+  }
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadReportCsv(report: 'members' | 'fees' | 'cash' | 'delinquency', filters: object = {}) {
+  return downloadFile(`/api/reports/${report}.csv${buildQueryString(filters)}`, `${report}.csv`);
 }
 
 // Asistencias
@@ -359,10 +416,14 @@ async function publicFetch2(path: string, body: Record<string, unknown>) {
 
 // --- Portal del socio ---
 
+/** Evento que avisa a la UI que la sesión del socio cambió (login, logout, vencimiento). */
+export const MEMBER_SESSION_EVENT = 'member-session';
+
 function storeMemberSession(data: { accessToken: string; member: unknown }) {
   if (typeof window === 'undefined') return;
   localStorage.setItem('memberToken', data.accessToken);
   localStorage.setItem('memberInfo', JSON.stringify(data.member));
+  window.dispatchEvent(new Event(MEMBER_SESSION_EVENT));
 }
 
 /**
@@ -386,6 +447,7 @@ export function memberLogout() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem('memberToken');
   localStorage.removeItem('memberInfo');
+  window.dispatchEvent(new Event(MEMBER_SESSION_EVENT));
 }
 
 export function getMemberInfo() {
@@ -406,11 +468,11 @@ async function memberFetch(path: string) {
   });
   if (res.status === 401) {
     memberLogout();
-    throw new Error('SESSION_EXPIRED');
+    throw new ApiError('Tu sesión venció. Volvé a ingresar.', 401);
   }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: 'Error' }));
-    throw new Error(errorMessage(error.message) ?? 'Error en la petición');
+    throw new ApiError(errorMessage(error.message) ?? 'Error en la petición', res.status);
   }
   return res.json();
 }
@@ -441,4 +503,122 @@ export async function changeMemberPin(currentPin: string, newPin: string) {
   }
   // El cambio cierra las otras sesiones y devuelve un token nuevo
   storeMemberSession(data);
+}
+
+export async function payFeeWithMercadoPago(feeId: string): Promise<{ initPoint?: string }> {
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem('memberToken') ?? '' : '';
+  const res = await fetch(`${API_BASE}/api/member-portal/me/fees/${feeId}/mp-preference`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(errorMessage(data.message) ?? 'No pudimos iniciar el pago');
+  }
+  return data;
+}
+
+// --- Cuenta propia del staff ---
+
+export function changeOwnPassword(currentPassword: string, newPassword: string) {
+  return apiFetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export function logoutAllSessions() {
+  return apiFetch('/api/auth/logout-all', { method: 'POST' });
+}
+
+// --- Usuarios del staff (ADMIN) ---
+
+export function getUsers() {
+  return apiFetch('/api/users');
+}
+
+export function createUser(data: Record<string, unknown>) {
+  return apiFetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateUser(id: string, data: Record<string, unknown>) {
+  return apiFetch(`/api/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function resetUserPassword(id: string, newPassword: string) {
+  return apiFetch(`/api/users/${id}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPassword }),
+  });
+}
+
+// --- Imágenes (fotos de socios, logo, noticias) ---
+
+export type UploadFolder = 'socios' | 'club' | 'noticias';
+
+export async function uploadImage(file: Blob, folder: UploadFolder, filename = 'imagen.jpg') {
+  const body = new FormData();
+  body.append('folder', folder);
+  body.append('file', file, filename);
+  // Sin Content-Type: el navegador arma el multipart con su boundary
+  return apiFetch('/api/uploads', { method: 'POST', body }) as Promise<{ url: string }>;
+}
+
+// --- Noticias y eventos ---
+
+export function getNewsAdmin(page = 1, limit = 20) {
+  return apiFetch(`/api/news${buildQueryString({ page, limit })}`);
+}
+
+export function saveNews(id: string | null, data: Record<string, unknown>) {
+  return apiFetch(id ? `/api/news/${id}` : '/api/news', {
+    method: id ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteNews(id: string) {
+  return apiFetch(`/api/news/${id}`, { method: 'DELETE' });
+}
+
+export function getEventsAdmin(page = 1, limit = 20) {
+  return apiFetch(`/api/events${buildQueryString({ page, limit })}`);
+}
+
+export function saveEvent(id: string | null, data: Record<string, unknown>) {
+  return apiFetch(id ? `/api/events/${id}` : '/api/events', {
+    method: id ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteEvent(id: string) {
+  return apiFetch(`/api/events/${id}`, { method: 'DELETE' });
+}
+
+export function getMemberPayments() {
+  return memberFetch('/api/member-portal/me/payments');
+}
+
+export function getMemberReceipt(id: string) {
+  return memberFetch(`/api/member-portal/me/payments/${id}`);
+}
+
+// --- Auditoría (ADMIN) ---
+
+export function getAuditLog(filters: object = {}) {
+  return apiFetch(`/api/audit${buildQueryString(filters)}`);
 }

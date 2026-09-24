@@ -1,18 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Fee } from '@/lib/types';
-import { Button } from '@/components/ui/Button';
+import { money, optionalText, requiredDate } from '@/lib/validation';
+import { formatMoney, toNumber } from '@/lib/money';
+import { todayLocal } from '@/lib/dates';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { todayLocal } from '@/lib/dates';
-
-interface PaymentFormProps {
-  fee: Fee;
-  onSubmit: (data: Record<string, unknown>) => void;
-  onCancel: () => void;
-  isLoading?: boolean;
-}
+import { FormActions } from '@/components/ui/FormActions';
 
 const methodOptions = [
   { value: 'CASH', label: 'Efectivo' },
@@ -22,73 +19,76 @@ const methodOptions = [
   { value: 'OTHER', label: 'Otro' },
 ];
 
-export function PaymentForm({
-  fee,
-  onSubmit,
-  onCancel,
-  isLoading,
-}: PaymentFormProps) {
-  const remaining = Number(fee.amount) - Number(fee.paidAmount);
+interface PaymentFormProps {
+  fee: Fee;
+  onSubmit: (data: Record<string, unknown>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
 
-  const [form, setForm] = useState({
-    amount: remaining.toFixed(2),
-    method: 'CASH',
-    reference: '',
-    paidAt: todayLocal(),
+export function PaymentForm({ fee, onSubmit, onCancel, isLoading }: PaymentFormProps) {
+  const remaining = toNumber(fee.amount) - toNumber(fee.paidAmount);
+
+  // El mismo límite que valida la API: no se cobra más que el saldo
+  const schema = z.object({
+    amount: money('Monto').refine((v) => Number(v) <= remaining + 1e-9, {
+      message: `No puede superar el saldo (${formatMoney(remaining)})`,
+    }),
+    method: z.enum(['CASH', 'TRANSFER', 'DEBIT', 'CREDIT', 'OTHER']),
+    reference: optionalText(),
+    paidAt: requiredDate('Fecha de pago').refine((v) => v <= todayLocal(), 'No puede ser una fecha futura'),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const { register, handleSubmit, formState: { errors } } = useForm<
+    z.input<typeof schema>,
+    unknown,
+    z.output<typeof schema>
+  >({
+    resolver: zodResolver(schema),
+    defaultValues: { amount: remaining.toFixed(2), method: 'CASH', reference: '', paidAt: todayLocal() },
+  });
+
+  const submit = handleSubmit((v) =>
     onSubmit({
       feeId: fee.id,
-      amount: form.amount,
-      method: form.method,
-      reference: form.reference || undefined,
-      paidAt: form.paidAt,
-    });
-  };
+      amount: v.amount,
+      method: v.method,
+      reference: v.reference || undefined,
+      paidAt: v.paidAt,
+    }),
+  );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <p className="text-sm text-gray-600">
-        Cuota de <strong>{fee.member.lastName}, {fee.member.firstName}</strong>
+    <form onSubmit={submit} className="space-y-4" noValidate>
+      <p className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-600">
+        <strong className="text-gray-900">
+          {fee.member.lastName}, {fee.member.firstName}
+        </strong>
         <br />
-        Total: ${fee.amount} | Restante: ${remaining.toFixed(2)}
+        {fee.feeType?.name ?? 'Cuota'} {fee.period} · Total {formatMoney(fee.amount)} · Saldo{' '}
+        <strong className="text-gray-900">{formatMoney(remaining)}</strong>
       </p>
-      <Input
-        label="Monto a pagar"
-        type="number"
-        step="0.01"
-        value={form.amount}
-        onChange={(e) => setForm({ ...form, amount: e.target.value })}
-        required
-      />
-      <Select
-        label="Método"
-        options={methodOptions}
-        value={form.method}
-        onChange={(e) => setForm({ ...form, method: e.target.value })}
-      />
+      <Input label="Monto a pagar" inputMode="decimal" {...register('amount')} error={errors.amount?.message} />
+      <Select label="Medio de pago" options={methodOptions} {...register('method')} />
       <Input
         label="Referencia"
-        value={form.reference}
-        onChange={(e) => setForm({ ...form, reference: e.target.value })}
+        hint="N.º de transferencia o comprobante (opcional)"
+        {...register('reference')}
+        error={errors.reference?.message}
       />
       <Input
         label="Fecha de pago"
         type="date"
-        value={form.paidAt}
-        onChange={(e) => setForm({ ...form, paidAt: e.target.value })}
+        max={todayLocal()}
+        {...register('paidAt')}
+        error={errors.paidAt?.message}
       />
-
-      <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Registrando...' : 'Registrar pago'}
-        </Button>
-      </div>
+      <FormActions
+        onCancel={onCancel}
+        isLoading={isLoading}
+        submitLabel="Registrar pago"
+        loadingLabel="Registrando..."
+      />
     </form>
   );
 }

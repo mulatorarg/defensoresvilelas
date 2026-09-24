@@ -1,18 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Category, Discipline } from '@/lib/types';
-import { Button } from '@/components/ui/Button';
+import { optionalAge, optionalMoney, optionalText, requiredText } from '@/lib/validation';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-
-interface CategoryFormProps {
-  disciplines: Discipline[];
-  category?: Category | null;
-  onSubmit: (data: Record<string, unknown>) => void;
-  onCancel: () => void;
-  isLoading?: boolean;
-}
+import { Checkbox } from '@/components/ui/Checkbox';
+import { FormActions } from '@/components/ui/FormActions';
 
 const genderOptions = [
   { value: 'MALE', label: 'Masculino' },
@@ -20,120 +16,99 @@ const genderOptions = [
   { value: 'MIXED', label: 'Mixto' },
 ];
 
-interface FormState {
-  disciplineId: string;
-  name: string;
-  ageFrom: string;
-  ageTo: string;
-  gender: string;
-  feeAmount: string;
-  schedule: string;
-  isActive: boolean;
+const schema = z
+  .object({
+    disciplineId: z.string().min(1, 'Elegí la disciplina'),
+    name: requiredText('Nombre'),
+    ageFrom: optionalAge,
+    ageTo: optionalAge,
+    gender: z.enum(['MALE', 'FEMALE', 'MIXED']),
+    feeAmount: optionalMoney('Cuota'),
+    schedule: optionalText(),
+    isActive: z.boolean(),
+  })
+  .refine((v) => !v.ageFrom || !v.ageTo || Number(v.ageFrom) <= Number(v.ageTo), {
+    path: ['ageTo'],
+    message: 'Tiene que ser mayor o igual a "Edad desde"',
+  });
+
+type FormValues = z.input<typeof schema>;
+
+interface CategoryFormProps {
+  disciplines: Discipline[];
+  category?: Category | null;
+  /** Disciplina preseleccionada al crear una categoría nueva. */
+  defaultDisciplineId?: string;
+  onSubmit: (data: Record<string, unknown>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
 }
 
 export function CategoryForm({
   disciplines,
   category,
+  defaultDisciplineId,
   onSubmit,
   onCancel,
   isLoading,
 }: CategoryFormProps) {
-  const [form, setForm] = useState<FormState>({
-    disciplineId: category?.disciplineId ?? disciplines[0]?.id ?? '',
-    name: category?.name ?? '',
-    ageFrom: category?.ageFrom?.toString() ?? '',
-    ageTo: category?.ageTo?.toString() ?? '',
-    gender: category?.gender ?? 'MIXED',
-    feeAmount: category?.feeAmount ?? '',
-    schedule: category?.schedule ?? '',
-    isActive: category?.isActive ?? true,
+  const { register, handleSubmit, formState: { errors } } = useForm<FormValues, unknown, z.output<typeof schema>>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      disciplineId: category?.disciplineId ?? defaultDisciplineId ?? disciplines[0]?.id ?? '',
+      name: category?.name ?? '',
+      ageFrom: category?.ageFrom?.toString() ?? '',
+      ageTo: category?.ageTo?.toString() ?? '',
+      gender: category?.gender ?? 'MIXED',
+      feeAmount: category?.feeAmount ?? '',
+      schedule: category?.schedule ?? '',
+      isActive: category?.isActive ?? true,
+    },
   });
 
-  const disciplineOptions = disciplines.map((d) => ({
-    value: d.id,
-    label: d.name,
-  }));
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = handleSubmit((v) => {
     const data: Record<string, unknown> = {
-      name: form.name,
-      disciplineId: form.disciplineId,
-      gender: form.gender,
-      schedule: form.schedule,
-      isActive: form.isActive,
+      name: v.name,
+      disciplineId: v.disciplineId,
+      gender: v.gender,
+      schedule: v.schedule,
+      isActive: v.isActive,
     };
-    if (form.ageFrom !== '') data.ageFrom = Number(form.ageFrom);
-    if (form.ageTo !== '') data.ageTo = Number(form.ageTo);
-    if (form.feeAmount !== '') data.feeAmount = form.feeAmount;
+    if (v.ageFrom !== '') data.ageFrom = Number(v.ageFrom);
+    if (v.ageTo !== '') data.ageTo = Number(v.ageTo);
+    if (v.feeAmount !== '') data.feeAmount = v.feeAmount;
     onSubmit(data);
-  };
+  });
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={submit} className="space-y-4" noValidate>
       <Select
         label="Disciplina"
-        options={disciplineOptions}
-        value={form.disciplineId}
-        onChange={(e) => setForm({ ...form, disciplineId: e.target.value })}
-        required
+        options={disciplines.map((d) => ({ value: d.id, label: d.name }))}
+        {...register('disciplineId')}
+        error={errors.disciplineId?.message}
       />
-      <Input
-        label="Nombre de categoría"
-        value={form.name}
-        onChange={(e) => setForm({ ...form, name: e.target.value })}
-        required
-      />
+      <Input label="Nombre de categoría" {...register('name')} error={errors.name?.message} />
       <div className="grid grid-cols-2 gap-4">
-        <Input
-          label="Edad desde"
-          type="number"
-          value={form.ageFrom}
-          onChange={(e) => setForm({ ...form, ageFrom: e.target.value })}
-        />
-        <Input
-          label="Edad hasta"
-          type="number"
-          value={form.ageTo}
-          onChange={(e) => setForm({ ...form, ageTo: e.target.value })}
-        />
+        <Input label="Edad desde" inputMode="numeric" {...register('ageFrom')} error={errors.ageFrom?.message} />
+        <Input label="Edad hasta" inputMode="numeric" {...register('ageTo')} error={errors.ageTo?.message} />
       </div>
-      <Select
-        label="Género"
-        options={genderOptions}
-        value={form.gender}
-        onChange={(e) => setForm({ ...form, gender: e.target.value })}
-      />
+      <Select label="Género" options={genderOptions} {...register('gender')} />
       <Input
         label="Monto de cuota"
-        type="number"
-        step="0.01"
-        value={form.feeAmount}
-        onChange={(e) => setForm({ ...form, feeAmount: e.target.value })}
+        inputMode="decimal"
+        hint="Si queda vacío se usa la cuota social del club"
+        {...register('feeAmount')}
+        error={errors.feeAmount?.message}
       />
       <Input
         label="Horario"
         placeholder="Ej: Lunes y Miércoles 18:00"
-        value={form.schedule}
-        onChange={(e) => setForm({ ...form, schedule: e.target.value })}
+        {...register('schedule')}
+        error={errors.schedule?.message}
       />
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={form.isActive}
-          onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-        />
-        <span className="text-sm text-gray-700">Activa</span>
-      </label>
-
-      <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Guardando...' : category ? 'Guardar' : 'Crear'}
-        </Button>
-      </div>
+      <Checkbox label="Activa" {...register('isActive')} />
+      <FormActions onCancel={onCancel} isLoading={isLoading} submitLabel={category ? 'Guardar' : 'Crear'} />
     </form>
   );
 }

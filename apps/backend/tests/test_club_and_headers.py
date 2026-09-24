@@ -17,6 +17,9 @@ def test_credenciales_mp_cifradas_y_enmascaradas(client, admin, db):
     assert stored.startswith("enc:") and "9999" not in stored
     assert crypto.decrypt(stored) == "APP_USR-9999-abcdefgh-5678"
 
+    assert client.get("/api/club").json()["onlinePayments"] is True
+    assert "mpAccessToken" not in client.get("/api/club").json()
+
     # Reenviar el valor enmascarado no pisa el real
     client.patch("/api/club/config", json={"mpAccessToken": "APP_USR-****5678"}, headers=admin)
     db.expire_all()
@@ -65,6 +68,12 @@ def test_docs_desactivados(client):
 def test_health_verifica_la_base(client):
     res = client.get("/health")
     assert res.status_code == 200 and res.json()["database"] == "ok"
+
+
+def test_web_acepta_head(client):
+    """El router de Next hace los prefetch de páginas con HEAD."""
+    assert client.head("/admin/socios/").status_code != 405
+    assert client.head("/").status_code != 405
 
 
 def test_request_id(client):

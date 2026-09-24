@@ -1,299 +1,328 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Download } from 'lucide-react';
 import {
+  downloadReportCsv,
   getDashboardSummary,
   getMembersReport,
   getFeesReport,
   getIncomeExpenseReport,
 } from '@/lib/api';
-import { Member, Fee, Transaction, DashboardSummary as Summary } from '@/lib/types';
+import { Member, Fee, Transaction, DashboardSummary, PaginatedResponse } from '@/lib/types';
 import { formatMoney, toNumber } from '@/lib/money';
+import { currentPeriod, formatDateOnly, todayLocal } from '@/lib/dates';
+import { errorText, qk } from '@/lib/queries';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { formatDateOnly } from '@/lib/dates';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { DataList } from '@/components/ui/DataList';
+import { ErrorState, Pagination, SkeletonRows } from '@/components/ui/States';
+import { useFeedback } from '@/components/ui/Feedback';
+import { RoleGuard } from '@/components/common/RoleGuard';
+
+const PAGE_SIZE = 25;
+
+type WithSummary<T> = PaginatedResponse<T> & { summary: Record<string, string> };
 
 const statusOptions = [
-  { value: '', label: 'Todos' },
+  { value: '', label: 'Todos los estados' },
   { value: 'ACTIVE', label: 'Activo' },
   { value: 'INACTIVE', label: 'Inactivo' },
   { value: 'SUSPENDED', label: 'Suspendido' },
 ];
 
 const feeStatusOptions = [
-  { value: '', label: 'Todos' },
+  { value: '', label: 'Todos los estados' },
   { value: 'PENDING', label: 'Pendiente' },
   { value: 'PARTIALLY_PAID', label: 'Parcial' },
   { value: 'PAID', label: 'Pagada' },
+  { value: 'CANCELLED', label: 'Anulada' },
 ];
 
-export default function ReportesPage() {
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [fees, setFees] = useState<{ items: Fee[]; summary: Record<string, string> } | null>(null);
-  const [incomeExpense, setIncomeExpense] = useState<{
-    items: Transaction[];
-    summary: Record<string, string>;
-  } | null>(null);
+const FEE_STATUS: Record<string, string> = {
+  PENDING: 'Pendiente',
+  PARTIALLY_PAID: 'Parcial',
+  PAID: 'Pagada',
+  CANCELLED: 'Anulada',
+};
 
+function Section({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6" aria-label={title}>
+      <div className="mb-4 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {actions && <div className="flex flex-wrap items-end gap-2">{actions}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Totals({ items }: { items: { label: string; value: string; tone?: 'green' | 'red' }[] }) {
+  const tones = { green: 'bg-green-50 text-green-800', red: 'bg-red-50 text-red-800' };
+  return (
+    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {items.map((t) => (
+        <div key={t.label} className={`rounded-xl p-3 ${t.tone ? tones[t.tone] : 'bg-gray-50'}`}>
+          <p className="text-xs opacity-70">{t.label}</p>
+          <p className="font-bold">{t.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Reportes() {
+  const { toast } = useFeedback();
   const [memberStatus, setMemberStatus] = useState('');
+  const [membersPage, setMembersPage] = useState(1);
   const [feePeriod, setFeePeriod] = useState('');
   const [feeStatus, setFeeStatus] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [feesPage, setFeesPage] = useState(1);
+  const [from, setFrom] = useState(() => `${currentPeriod()}-01`); // mes en curso
+  const [to, setTo] = useState(todayLocal);
+  const [txPage, setTxPage] = useState(1);
 
-  const fetchSummary = async () => {
+  const summary = useQuery<DashboardSummary>({ queryKey: qk.dashboard, queryFn: getDashboardSummary });
+
+  const memberFilters = { status: memberStatus, page: membersPage, limit: PAGE_SIZE };
+  const members = useQuery<PaginatedResponse<Member>>({
+    queryKey: qk.reports('members', memberFilters),
+    queryFn: () => getMembersReport(memberFilters),
+    placeholderData: keepPreviousData,
+  });
+
+  const feeFilters = { period: feePeriod, status: feeStatus, page: feesPage, limit: PAGE_SIZE };
+  const fees = useQuery<WithSummary<Fee>>({
+    queryKey: qk.reports('fees', feeFilters),
+    queryFn: () => getFeesReport(feeFilters),
+    placeholderData: keepPreviousData,
+  });
+
+  const txFilters = { from, to, page: txPage, limit: PAGE_SIZE };
+  const transactions = useQuery<WithSummary<Transaction>>({
+    queryKey: qk.reports('income-expense', txFilters),
+    queryFn: () => getIncomeExpenseReport(txFilters),
+    placeholderData: keepPreviousData,
+  });
+
+  const exportCsv = async (report: 'members' | 'fees' | 'cash', filters: object) => {
     try {
-      const data = await getDashboardSummary();
-      setSummary(data);
-    } catch {
-      setSummary(null);
+      await downloadReportCsv(report, filters);
+    } catch (err) {
+      toast(errorText(err, 'No se pudo exportar'), 'error');
     }
   };
 
-  const fetchMembers = async () => {
-    try {
-      const data = await getMembersReport({ status: memberStatus });
-      setMembers(data.items);
-    } catch {
-      setMembers([]);
-    }
-  };
+  const exportButton = (report: 'members' | 'fees' | 'cash', filters: object, label = 'Exportar CSV') => (
+    <Button variant="secondary" onClick={() => exportCsv(report, filters)} icon={<Download className="h-4 w-4" aria-hidden />}>
+      {label}
+    </Button>
+  );
 
-  const fetchFees = async () => {
-    try {
-      const data = await getFeesReport({ period: feePeriod, status: feeStatus });
-      setFees(data);
-    } catch {
-      setFees(null);
-    }
-  };
-
-  const fetchIncomeExpense = async () => {
-    try {
-      const data = await getIncomeExpenseReport({ from, to });
-      setIncomeExpense(data);
-    } catch {
-      setIncomeExpense(null);
-    }
-  };
-
-  useEffect(() => {
-    fetchSummary();
-    fetchMembers();
-    fetchFees();
-    fetchIncomeExpense();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const s = summary.data;
 
   return (
     <div className="space-y-8">
-      <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Reportes</h1>
-
       {/* Resumen */}
-      <section>
-        <h2 className="text-xl font-bold mb-4">Resumen del mes</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-lg border border-gray-200">
-            <p className="text-sm text-gray-500">Socios activos</p>
-            <p className="text-3xl font-bold mt-2">
-              {summary?.activeMembers ?? 0} / {summary?.totalMembers ?? 0}
-            </p>
+      <section aria-label="Resumen del mes">
+        <h2 className="mb-4 text-xl font-bold">Resumen del mes</h2>
+        {summary.isError ? (
+          <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-gray-100 bg-white p-6">
+              <p className="text-sm text-gray-500">Socios activos</p>
+              <p className="mt-2 text-3xl font-bold">
+                {s?.activeMembers ?? '-'} / {s?.totalMembers ?? '-'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-gray-100 bg-white p-6">
+              <p className="text-sm text-gray-500">Recaudado en cuotas</p>
+              <p className="mt-2 text-3xl font-bold">{s ? formatMoney(s.collectedThisMonth) : '-'}</p>
+            </div>
+            <div className="rounded-2xl border border-gray-100 bg-white p-6">
+              <p className="text-sm text-gray-500">Balance de caja (sin cuotas)</p>
+              <p className="mt-2 text-3xl font-bold">
+                {s ? formatMoney(toNumber(s.incomeThisMonth) - toNumber(s.expenseThisMonth)) : '-'}
+              </p>
+            </div>
           </div>
-          <div className="bg-white p-6 rounded-lg border border-gray-200">
-            <p className="text-sm text-gray-500">Recaudado</p>
-            <p className="text-3xl font-bold mt-2">
-              {formatMoney(summary?.collectedThisMonth ?? 0)}
-            </p>
-          </div>
-          <div className="bg-white p-6 rounded-lg border border-gray-200">
-            <p className="text-sm text-gray-500">Balance</p>
-            <p className="text-3xl font-bold mt-2">
-              {formatMoney(
-                toNumber(summary?.incomeThisMonth) - toNumber(summary?.expenseThisMonth),
-              )}
-            </p>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Socios */}
-      <section className="bg-white p-6 rounded-lg border border-gray-200">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-          <h2 className="text-xl font-bold">Socios</h2>
-          <div className="flex gap-2">
+      <Section
+        title="Socios"
+        actions={
+          <>
             <Select
+              label="Estado"
               options={statusOptions}
               value={memberStatus}
-              onChange={(e) => setMemberStatus(e.target.value)}
+              onChange={(e) => {
+                setMemberStatus(e.target.value);
+                setMembersPage(1);
+              }}
             />
-            <Button onClick={fetchMembers}>Filtrar</Button>
-          </div>
-        </div>
-        <p className="text-sm text-gray-600 mb-2">Total: {members.length}</p>
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Socio</th>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">DNI</th>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Inscripciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {members.map((m) => (
-                <tr key={m.id}>
-                  <td className="px-4 py-2 text-sm">
-                    {m.lastName}, {m.firstName}
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-600">{m.dni}</td>
-                  <td className="px-4 py-2 text-sm text-gray-600">
-                    {m.enrollments.map((e) => e.category.name).join(', ') || '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            {exportButton('members', { status: memberStatus })}
+          </>
+        }
+      >
+        {members.isPending ? (
+          <SkeletonRows count={4} height="h-10" />
+        ) : members.isError ? (
+          <ErrorState error={members.error} onRetry={() => members.refetch()} />
+        ) : (
+          <>
+            <DataList
+              rows={members.data.items}
+              rowKey={(m) => m.id}
+              columns={[
+                { key: 'name', header: 'Socio', cell: (m) => `${m.lastName}, ${m.firstName}` },
+                { key: 'dni', header: 'DNI', cell: (m) => m.dni },
+                {
+                  key: 'enr',
+                  header: 'Inscripciones',
+                  cell: (m) => m.enrollments.map((e) => `${e.category.discipline.name} ${e.category.name}`).join(', ') || '-',
+                },
+              ]}
+            />
+            <Pagination meta={members.data.meta} onPage={setMembersPage} label="socios" />
+          </>
+        )}
+      </Section>
 
       {/* Cuotas */}
-      <section className="bg-white p-6 rounded-lg border border-gray-200">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-          <h2 className="text-xl font-bold">Cuotas</h2>
-          <div className="flex gap-2">
+      <Section
+        title="Cuotas"
+        actions={
+          <>
             <Input
-              placeholder="Período (AAAA-MM)"
+              type="month"
+              label="Período"
               value={feePeriod}
-              onChange={(e) => setFeePeriod(e.target.value)}
-              className="w-40"
+              onChange={(e) => {
+                setFeePeriod(e.target.value);
+                setFeesPage(1);
+              }}
+              className="w-44"
             />
             <Select
+              label="Estado"
               options={feeStatusOptions}
               value={feeStatus}
-              onChange={(e) => setFeeStatus(e.target.value)}
+              onChange={(e) => {
+                setFeeStatus(e.target.value);
+                setFeesPage(1);
+              }}
             />
-            <Button onClick={fetchFees}>Filtrar</Button>
-          </div>
-        </div>
-        {fees && (
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="bg-gray-50 p-3 rounded">
-              <p className="text-xs text-gray-500">Total</p>
-              <p className="font-bold">{formatMoney(fees.summary.totalAmount)}</p>
-            </div>
-            <div className="bg-gray-50 p-3 rounded">
-              <p className="text-xs text-gray-500">Pagado</p>
-              <p className="font-bold">{formatMoney(fees.summary.totalPaid)}</p>
-            </div>
-            <div className="bg-gray-50 p-3 rounded">
-              <p className="text-xs text-gray-500">Pendiente</p>
-              <p className="font-bold">{formatMoney(fees.summary.totalPending)}</p>
-            </div>
-          </div>
+            {exportButton('fees', { period: feePeriod, status: feeStatus })}
+          </>
+        }
+      >
+        {fees.isPending ? (
+          <SkeletonRows count={4} height="h-10" />
+        ) : fees.isError ? (
+          <ErrorState error={fees.error} onRetry={() => fees.refetch()} />
+        ) : (
+          <>
+            <Totals
+              items={[
+                { label: 'Total', value: formatMoney(fees.data.summary.totalAmount) },
+                { label: 'Pagado', value: formatMoney(fees.data.summary.totalPaid), tone: 'green' },
+                { label: 'Pendiente', value: formatMoney(fees.data.summary.totalPending), tone: 'red' },
+              ]}
+            />
+            <DataList
+              rows={fees.data.items}
+              rowKey={(f) => f.id}
+              columns={[
+                { key: 'name', header: 'Socio', cell: (f) => `${f.member.lastName}, ${f.member.firstName}` },
+                { key: 'concept', header: 'Concepto', cell: (f) => `${f.feeType?.name ?? 'Cuota'} ${f.period}` },
+                { key: 'status', header: 'Estado', cell: (f) => FEE_STATUS[f.status] ?? f.status },
+                { key: 'amount', header: 'Monto', align: 'right', cell: (f) => formatMoney(f.amount) },
+              ]}
+            />
+            <Pagination meta={fees.data.meta} onPage={setFeesPage} label="cuotas" />
+          </>
         )}
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Socio</th>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Concepto</th>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Estado</th>
-                <th className="px-4 py-2 text-right text-xs uppercase text-gray-500">Monto</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {fees?.items.map((f) => (
-                <tr key={f.id}>
-                  <td className="px-4 py-2 text-sm">
-                    {f.member.lastName}, {f.member.firstName}
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-600">
-                    {f.feeType?.name ?? 'Cuota'} {f.period && `(${f.period})`}
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-600">{f.status}</td>
-                  <td className="px-4 py-2 text-sm text-right">${f.amount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </Section>
 
-      {/* Ingresos/Egresos */}
-      <section className="bg-white p-6 rounded-lg border border-gray-200">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-          <h2 className="text-xl font-bold">Ingresos y egresos</h2>
-          <div className="flex gap-2">
+      {/* Caja */}
+      <Section
+        title="Movimientos de caja"
+        actions={
+          <>
             <Input
               type="date"
+              label="Desde"
               value={from}
-              onChange={(e) => setFrom(e.target.value)}
+              max={to}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setTxPage(1);
+              }}
             />
             <Input
               type="date"
+              label="Hasta"
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              min={from}
+              onChange={(e) => {
+                setTo(e.target.value);
+                setTxPage(1);
+              }}
             />
-            <Button onClick={fetchIncomeExpense}>Filtrar</Button>
-          </div>
-        </div>
-        {incomeExpense && (
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="bg-green-50 p-3 rounded">
-              <p className="text-xs text-green-700">Ingresos</p>
-              <p className="font-bold text-green-800">
-                {formatMoney(incomeExpense.summary.income)}
-              </p>
-            </div>
-            <div className="bg-red-50 p-3 rounded">
-              <p className="text-xs text-red-700">Egresos</p>
-              <p className="font-bold text-red-800">
-                {formatMoney(incomeExpense.summary.expense)}
-              </p>
-            </div>
-            <div className="bg-gray-50 p-3 rounded">
-              <p className="text-xs text-gray-500">Balance</p>
-              <p className="font-bold">{formatMoney(incomeExpense.summary.balance)}</p>
-            </div>
-          </div>
+            {exportButton('cash', { from, to }, 'Exportar caja CSV')}
+          </>
+        }
+      >
+        {transactions.isPending ? (
+          <SkeletonRows count={4} height="h-10" />
+        ) : transactions.isError ? (
+          <ErrorState error={transactions.error} onRetry={() => transactions.refetch()} />
+        ) : (
+          <>
+            <Totals
+              items={[
+                { label: 'Ingresos', value: formatMoney(transactions.data.summary.income), tone: 'green' },
+                { label: 'Egresos', value: formatMoney(transactions.data.summary.expense), tone: 'red' },
+                { label: 'Balance', value: formatMoney(transactions.data.summary.balance) },
+              ]}
+            />
+            <DataList
+              rows={transactions.data.items}
+              rowKey={(t) => t.id}
+              empty="Sin movimientos en el período."
+              columns={[
+                { key: 'date', header: 'Fecha', cell: (t) => formatDateOnly(t.date) },
+                { key: 'type', header: 'Tipo', cell: (t) => (t.type === 'INCOME' ? 'Ingreso' : 'Egreso') },
+                { key: 'category', header: 'Categoría', cell: (t) => t.category },
+                { key: 'amount', header: 'Monto', align: 'right', cell: (t) => formatMoney(t.amount) },
+              ]}
+            />
+            <Pagination meta={transactions.data.meta} onPage={setTxPage} label="movimientos" />
+            <p className="mt-2 text-xs text-gray-400">
+              El listado muestra la caja manual; el CSV suma también los pagos de cuotas del período.
+            </p>
+          </>
         )}
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Fecha</th>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Tipo</th>
-                <th className="px-4 py-2 text-left text-xs uppercase text-gray-500">Categoría</th>
-                <th className="px-4 py-2 text-right text-xs uppercase text-gray-500">Monto</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {incomeExpense?.items.map((t) => (
-                <tr key={t.id}>
-                  <td className="px-4 py-2 text-sm">
-                    {formatDateOnly(t.date)}
-                  </td>
-                  <td className="px-4 py-2 text-sm">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-semibold ${
-                        t.type === 'INCOME'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      {t.type === 'INCOME' ? 'Ingreso' : 'Egreso'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-600">{t.category}</td>
-                  <td className="px-4 py-2 text-sm text-right">${t.amount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </Section>
+    </div>
+  );
+}
+
+export default function ReportesPage() {
+  return (
+    <div className="mx-auto max-w-6xl">
+      <PageHeader title="Reportes" description="Socios, cuotas y caja, con exportación a CSV para Excel." />
+      <RoleGuard roles={['ADMIN', 'OPERATOR']}>
+        <Reportes />
+      </RoleGuard>
     </div>
   );
 }

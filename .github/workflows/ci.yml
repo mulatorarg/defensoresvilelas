@@ -1,13 +1,11 @@
 # CI: tests del backend (pytest contra MariaDB real), lint y build del frontend.
 #
-# Corre en cada push y pull request, y el workflow de deploy lo llama antes de
+# El workflow de deploy lo llama antes de
 # construir la imagen (workflow_call): si algo falla, no se deploya.
 
 name: CI
 
 on:
-  push:
-  pull_request:
   workflow_call:
 
 jobs:
@@ -35,7 +33,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: apps/backend/requirements*.txt
 

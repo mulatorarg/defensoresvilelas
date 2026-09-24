@@ -15,6 +15,7 @@ export interface Discipline {
   name: string;
   description?: string;
   icon?: string;
+  imageUrl?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -103,6 +104,8 @@ export interface Fee {
   dueDate?: string;
   status: FeeStatus;
   externalReference?: string;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
   member: {
     id: string;
     firstName: string;
@@ -188,5 +191,115 @@ export interface Attendance {
     id: string;
     name: string;
     discipline: { name: string };
+  };
+}
+
+export type StaffRole = 'ADMIN' | 'OPERATOR' | 'TEACHER' | 'STAFF';
+
+export interface StaffUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string | null;
+  role: StaffRole;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface ClubConfig {
+  name: string;
+  legalName?: string | null;
+  document?: string | null;
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  whatsapp?: string | null;
+  instagram?: string | null;
+  facebook?: string | null;
+  website?: string | null;
+  monthlyFee?: string | null;
+  // Enmascarados por la API ("APP_USR-****1234"); null si no están cargados
+  mpAccessToken?: string | null;
+  mpWebhookSecret?: string | null;
+  heroImageUrl?: string | null;
+  timezone?: string;
+}
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt?: string | null;
+  content?: string | null;
+  imageUrl?: string | null;
+  published: boolean;
+  publishedAt?: string | null;
+  createdAt: string;
+}
+
+export interface ClubEvent {
+  id: string;
+  title: string;
+  description?: string | null;
+  eventDate: string;
+  location?: string | null;
+  isPublic: boolean;
+}
+
+export interface DelinquentMember {
+  member: {
+    id: string;
+    memberNumber?: string | null;
+    firstName: string;
+    lastName: string;
+    dni: string;
+    phone?: string | null;
+    email?: string | null;
+  };
+  fees: {
+    id: string;
+    period: string;
+    concept: string;
+    category?: string | null;
+    owed: string;
+    dueDate?: string | null;
+    status: FeeStatus;
+  }[];
+  total: string;
+  feesCount: number;
+  oldestPeriod: string;
+}
+
+export interface PaymentReceipt {
+  id: string;
+  receiptNumber: string;
+  amount: string;
+  method: PaymentMethod;
+  reference?: string | null;
+  paidAt: string;
+  member: { id: string; firstName: string; lastName: string; dni?: string } | null;
+  memberNumber?: string | null;
+  fee: {
+    id: string;
+    period: string;
+    concept: string;
+    category?: string | null;
+    amount: string;
+    paidAmount: string;
+    balance: string;
+    status: FeeStatus;
+  } | null;
+  club: {
+    name: string;
+    legalName?: string | null;
+    document?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    logoUrl?: string | null;
   };
 }

@@ -14,9 +14,12 @@ import {
   createContext,
   useCallback,
   useContext,
+  useId,
   useRef,
   useState,
 } from 'react';
+import { AlertTriangle, Check, CircleHelp, X } from 'lucide-react';
+import { useFocusTrap } from '@/lib/useFocusTrap';
 import { Button } from './Button';
 
 type ToastType = 'success' | 'error';
@@ -68,17 +71,29 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const closeConfirm = (ok: boolean) => {
-    confirmState?.resolve(ok);
-    setConfirmState(null);
-  };
+  const closeConfirm = useCallback(
+    (ok: boolean) => {
+      confirmState?.resolve(ok);
+      setConfirmState(null);
+    },
+    [confirmState],
+  );
+
+  const confirmRef = useRef<HTMLDivElement>(null);
+  const confirmTitleId = useId();
+  const cancelConfirm = useCallback(() => closeConfirm(false), [closeConfirm]);
+  useFocusTrap(confirmRef, confirmState !== null, cancelConfirm);
 
   return (
     <FeedbackContext.Provider value={{ toast, confirmAction }}>
       {children}
 
       {/* Toasts */}
-      <div className="pointer-events-none fixed right-4 top-4 z-[70] flex w-80 flex-col gap-2">
+      <div
+        className="pointer-events-none fixed inset-x-4 top-4 z-[70] flex flex-col gap-2 sm:left-auto sm:w-80"
+        role="status"
+        aria-live="polite"
+      >
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -89,11 +104,12 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             }`}
           >
             <span
-              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white ${
                 t.type === 'success' ? 'bg-primary' : 'bg-red-500'
               }`}
+              aria-hidden
             >
-              {t.type === 'success' ? '✓' : '!'}
+              {t.type === 'success' ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
             </span>
             <p className="leading-snug">{t.message}</p>
           </div>
@@ -107,19 +123,27 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           onClick={() => closeConfirm(false)}
         >
           <div
-            className="animate-rise w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl [animation-duration:0.3s]"
+            ref={confirmRef}
+            tabIndex={-1}
+            className="animate-rise w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl outline-hidden [animation-duration:0.3s]"
             onClick={(e) => e.stopPropagation()}
             role="alertdialog"
-            aria-label={confirmState.title}
+            aria-modal="true"
+            aria-labelledby={confirmTitleId}
           >
             <div
-              className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full text-2xl ${
-                confirmState.danger ? 'bg-red-50' : 'bg-primary/10'
+              className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full ${
+                confirmState.danger ? 'bg-red-50 text-red-600' : 'bg-primary/10 text-primary'
               }`}
+              aria-hidden
             >
-              {confirmState.danger ? '⚠️' : '❓'}
+              {confirmState.danger ? (
+                <AlertTriangle className="h-6 w-6" />
+              ) : (
+                <CircleHelp className="h-6 w-6" />
+              )}
             </div>
-            <h3 className="font-display text-lg font-bold text-gray-900">
+            <h3 id={confirmTitleId} className="font-display text-lg font-bold text-gray-900">
               {confirmState.title}
             </h3>
             {confirmState.message && (

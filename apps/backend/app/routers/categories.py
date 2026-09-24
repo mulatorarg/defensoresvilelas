@@ -44,7 +44,6 @@ def create(dto: CreateCategoryDto, db: DbDep, ctx: StaffContext = WriteRoles):
     )
     db.add(category)
     db.commit()
-    db.refresh(category)
     return serializers.category_with_discipline(category)
 
 
@@ -93,7 +92,6 @@ def update(category_id: str, dto: UpdateCategoryDto, db: DbDep, ctx: StaffContex
         category.feeAmount = Decimal(dto.feeAmount)
 
     db.commit()
-    db.refresh(category)
     return serializers.category_with_discipline(category)
 
 
@@ -102,5 +100,4 @@ def remove(category_id: str, db: DbDep, ctx: StaffContext = WriteRoles):
     category = _get_category(db, category_id)
     category.isActive = False
     db.commit()
-    db.refresh(category)
     return serializers.category_with_discipline(category)

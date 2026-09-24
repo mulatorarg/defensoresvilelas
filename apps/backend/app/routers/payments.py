@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from .. import clock, models, mp, serializers
 from ..audit import audit
 from ..config import API_PUBLIC_URL
-from ..deps import DbDep, StaffContext, require_roles
+from ..deps import DbDep, StaffContext, get_club_config, require_roles
 from ..errors import bad_request, not_found, unauthorized
 from ..ids import new_id
 from ..models import utcnow
@@ -68,7 +68,6 @@ def create(dto: CreatePaymentDto, db: DbDep, ctx: StaffContext = Roles):
     mp.update_fee_status(db, fee.id)
     audit(db, ctx, "CREATE", "payment", pay.id, serializers.payment(pay))
     db.commit()
-    db.refresh(pay)
     return serializers.payment(pay)
 
 
@@ -94,6 +93,15 @@ def create_preference(
     fee.externalReference = result["preferenceId"]
     db.commit()
     return result
+
+
+@router.get("/{payment_id}")
+def find_one(payment_id: str, db: DbDep, ctx: StaffContext = Roles):
+    """Datos para el recibo de un pago."""
+    pay = db.get(models.Payment, payment_id)
+    if not pay:
+        raise not_found("Pago no encontrado")
+    return serializers.payment_receipt(pay, get_club_config(db))
 
 
 def _validate_signature(

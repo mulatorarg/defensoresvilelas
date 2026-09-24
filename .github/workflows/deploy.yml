@@ -110,6 +110,10 @@ jobs:
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             docker compose pull app
+            # La app corre sin root (UID 1000): recursos/ tiene que ser suyo. Se
+            # corrige con la propia imagen como root (sin sudo en el VPS).
+            docker compose run --rm --no-deps --user root --entrypoint "" app \
+              chown -R app:app /app/recursos
             docker compose up -d
             docker image prune -f
             docker compose ps

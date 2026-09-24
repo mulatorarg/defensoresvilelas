@@ -1,94 +1,110 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Attendance, Discipline } from '@/lib/types';
-import {
-  getAttendances,
-  getDisciplines,
-  bulkCreateAttendance,
-  deleteAttendance,
-} from '@/lib/api';
-import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { AttendanceTaker } from '@/components/attendances/AttendanceTaker';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CalendarCheck, ClipboardCheck, Trash2 } from 'lucide-react';
+import { Attendance } from '@/lib/types';
+import { getAttendances, bulkCreateAttendance, deleteAttendance } from '@/lib/api';
+import { errorText, qk, useDisciplines } from '@/lib/queries';
 import { formatDateOnly, todayLocal } from '@/lib/dates';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState, SkeletonRows } from '@/components/ui/States';
+import { useFeedback } from '@/components/ui/Feedback';
+import { AttendanceTaker } from '@/components/attendances/AttendanceTaker';
 
 export default function AsistenciasPage() {
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [disciplines, setDisciplines] = useState<Discipline[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const { toast, confirmAction } = useFeedback();
+  const queryClient = useQueryClient();
+  const today = todayLocal();
+  const [date, setDate] = useState(today);
   const [takerOpen, setTakerOpen] = useState(false);
 
-  const today = todayLocal();
+  const attendancesQuery = useQuery<Attendance[]>({
+    queryKey: qk.attendances({ date }),
+    queryFn: () => getAttendances({ date }),
+  });
+  const { data: disciplines = [] } = useDisciplines();
+  const attendances = attendancesQuery.data ?? [];
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [attData, discData] = await Promise.all([
-        getAttendances({ date: today }),
-        getDisciplines(),
-      ]);
-      setAttendances(attData);
-      setDisciplines(discData);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al cargar');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSubmit = async (data: {
-    categoryId: string;
-    date: string;
-    records: { memberId: string; present: boolean; notes: string }[];
-  }) => {
-    setSaving(true);
-    try {
-      await bulkCreateAttendance(data);
+  const save = useMutation({
+    mutationFn: bulkCreateAttendance,
+    onSuccess: (_result, variables) => {
+      toast('Asistencia guardada');
       setTakerOpen(false);
-      fetchData();
+      queryClient.invalidateQueries({ queryKey: ['attendances'] });
+      setDate(String(variables.date));
+    },
+    onError: (err) => toast(errorText(err, 'Error al guardar'), 'error'),
+  });
+
+  const handleDelete = async (att: Attendance) => {
+    const ok = await confirmAction({
+      title: '¿Eliminar este registro de asistencia?',
+      message: `${att.member.lastName}, ${att.member.firstName} · ${formatDateOnly(att.date)}`,
+      confirmLabel: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteAttendance(att.id);
+      toast('Registro eliminado');
+      queryClient.invalidateQueries({ queryKey: ['attendances'] });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al guardar');
-    } finally {
-      setSaving(false);
+      toast(errorText(err, 'Error al eliminar'), 'error');
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este registro de asistencia?')) return;
-    try {
-      await deleteAttendance(id);
-      fetchData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al eliminar');
-    }
-  };
+  const present = attendances.filter((a) => a.present).length;
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Asistencia</h1>
-        <Button onClick={() => setTakerOpen(true)}>Tomar asistencia</Button>
+      <PageHeader title="Asistencia" description="Presentes y ausentes por categoría y día.">
+        <Button onClick={() => setTakerOpen(true)} icon={<ClipboardCheck className="h-4 w-4" aria-hidden />}>
+          Tomar asistencia
+        </Button>
+      </PageHeader>
+
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        <div className="w-48">
+          <Input
+            label="Fecha"
+            type="date"
+            value={date}
+            max={today}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+          />
+        </div>
+        {date !== today && (
+          <Button variant="ghost" onClick={() => setDate(today)}>
+            Hoy
+          </Button>
+        )}
+        {attendances.length > 0 && (
+          <p className="pb-2 text-sm text-gray-500" role="status">
+            {present} presentes · {attendances.length - present} ausentes
+          </p>
+        )}
       </div>
 
-      {loading ? (
-        <p className="text-gray-500">Cargando...</p>
+      {attendancesQuery.isPending ? (
+        <SkeletonRows />
+      ) : attendancesQuery.isError ? (
+        <ErrorState error={attendancesQuery.error} onRetry={() => attendancesQuery.refetch()} />
       ) : attendances.length === 0 ? (
-        <p className="text-gray-500">No hay registros de asistencia para hoy.</p>
+        <EmptyState
+          icon={<CalendarCheck className="h-7 w-7 text-gray-400" aria-hidden />}
+          title={`No hay asistencia cargada para el ${formatDateOnly(date)}`}
+          hint="Tomá asistencia eligiendo la disciplina y la categoría."
+        />
       ) : (
-        <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-200">
+        <ul className="divide-y divide-gray-100 rounded-2xl border border-gray-100 bg-white">
           {attendances.map((att) => (
-            <div
-              key={att.id}
-              className="p-4 flex justify-between items-center hover:bg-gray-50"
-            >
-              <div>
+            <li key={att.id} className="flex items-center justify-between gap-3 p-4">
+              <div className="min-w-0">
                 <p className="font-medium">
                   {att.member.lastName}, {att.member.firstName}
                 </p>
@@ -96,34 +112,35 @@ export default function AsistenciasPage() {
                   {att.category.discipline.name} - {att.category.name}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {formatDateOnly(att.date)} —{' '}
-                  {att.present ? 'Presente' : 'Ausente'}
+                  <span className={att.present ? 'font-semibold text-green-700' : 'font-semibold text-red-600'}>
+                    {att.present ? 'Presente' : 'Ausente'}
+                  </span>
                   {att.notes && ` · ${att.notes}`}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                className="text-sm text-red-600 hover:text-red-700"
-                onClick={() => handleDelete(att.id)}
+              <button
+                onClick={() => handleDelete(att)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"
+                aria-label={`Eliminar la asistencia de ${att.member.firstName} ${att.member.lastName}`}
+                title="Eliminar"
               >
-                Eliminar
-              </Button>
-            </div>
+                <Trash2 className="h-4 w-4" aria-hidden />
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
-      <Modal
-        isOpen={takerOpen}
-        onClose={() => setTakerOpen(false)}
-        title="Tomar asistencia"
-      >
-        <AttendanceTaker
-          disciplines={disciplines}
-          onSubmit={handleSubmit}
-          onCancel={() => setTakerOpen(false)}
-          isLoading={saving}
-        />
+      <Modal isOpen={takerOpen} onClose={() => setTakerOpen(false)} title="Tomar asistencia">
+        {takerOpen && (
+          <AttendanceTaker
+            disciplines={disciplines}
+            initialDate={date}
+            onSubmit={(data) => save.mutate(data)}
+            onCancel={() => setTakerOpen(false)}
+            isLoading={save.isPending}
+          />
+        )}
       </Modal>
     </div>
   );

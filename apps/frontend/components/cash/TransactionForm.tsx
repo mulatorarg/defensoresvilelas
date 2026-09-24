@@ -1,16 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/Button';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { money, optionalText, requiredDate } from '@/lib/validation';
+import { todayLocal } from '@/lib/dates';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { todayLocal } from '@/lib/dates';
-
-interface TransactionFormProps {
-  onSubmit: (data: Record<string, unknown>) => void;
-  onCancel: () => void;
-  isLoading?: boolean;
-}
+import { FormActions } from '@/components/ui/FormActions';
 
 const typeOptions = [
   { value: 'INCOME', label: 'Ingreso' },
@@ -26,67 +23,40 @@ const categoryOptions = [
   { value: 'Otros egresos', label: 'Otros egresos' },
 ];
 
-export function TransactionForm({
-  onSubmit,
-  onCancel,
-  isLoading,
-}: TransactionFormProps) {
-  const [form, setForm] = useState({
-    type: 'EXPENSE',
-    category: 'Gastos varios',
-    amount: '',
-    description: '',
-    date: todayLocal(),
+const schema = z.object({
+  type: z.enum(['INCOME', 'EXPENSE']),
+  category: z.string().min(1),
+  amount: money('Monto'),
+  description: optionalText(1000),
+  date: requiredDate('Fecha'),
+});
+
+interface TransactionFormProps {
+  onSubmit: (data: Record<string, unknown>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+export function TransactionForm({ onSubmit, onCancel, isLoading }: TransactionFormProps) {
+  const { register, handleSubmit, formState: { errors } } = useForm<
+    z.input<typeof schema>,
+    unknown,
+    z.output<typeof schema>
+  >({
+    resolver: zodResolver(schema),
+    defaultValues: { type: 'EXPENSE', category: 'Gastos varios', amount: '', description: '', date: todayLocal() },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(form);
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Select
-        label="Tipo"
-        options={typeOptions}
-        value={form.type}
-        onChange={(e) => setForm({ ...form, type: e.target.value })}
-      />
-      <Select
-        label="Categoría"
-        options={categoryOptions}
-        value={form.category}
-        onChange={(e) => setForm({ ...form, category: e.target.value })}
-      />
-      <Input
-        label="Monto"
-        type="number"
-        step="0.01"
-        value={form.amount}
-        onChange={(e) => setForm({ ...form, amount: e.target.value })}
-        required
-      />
-      <Input
-        label="Descripción"
-        value={form.description}
-        onChange={(e) => setForm({ ...form, description: e.target.value })}
-      />
-      <Input
-        label="Fecha"
-        type="date"
-        value={form.date}
-        onChange={(e) => setForm({ ...form, date: e.target.value })}
-        required
-      />
-
-      <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Guardando...' : 'Guardar'}
-        </Button>
+    <form onSubmit={handleSubmit((data) => onSubmit(data))} className="space-y-4" noValidate>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Select label="Tipo" options={typeOptions} {...register('type')} />
+        <Select label="Categoría" options={categoryOptions} {...register('category')} />
       </div>
+      <Input label="Monto" inputMode="decimal" {...register('amount')} error={errors.amount?.message} />
+      <Input label="Descripción" {...register('description')} error={errors.description?.message} />
+      <Input label="Fecha" type="date" {...register('date')} error={errors.date?.message} />
+      <FormActions onCancel={onCancel} isLoading={isLoading} submitLabel="Guardar" />
     </form>
   );
 }

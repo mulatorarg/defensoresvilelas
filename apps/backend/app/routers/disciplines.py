@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from .. import models, serializers
 from ..deps import DbDep, StaffContext, require_roles
 from ..errors import not_found
 from ..ids import new_id
 from ..schemas import CreateDisciplineDto, UpdateDisciplineDto
+from ..uploads import delete_upload
 
 router = APIRouter(prefix="/api/disciplines", tags=["disciplines"])
 
@@ -31,18 +33,20 @@ def create(dto: CreateDisciplineDto, db: DbDep, ctx: StaffContext = WriteRoles):
         name=dto.name,
         description=dto.description,
         icon=dto.icon,
+        imageUrl=dto.imageUrl or None,
         isActive=dto.isActive if dto.isActive is not None else True,
     )
     db.add(discipline)
     db.commit()
-    db.refresh(discipline)
     return serializers.discipline_full(discipline, _sorted_categories(discipline))
 
 
 @router.get("")
 def find_all(db: DbDep, ctx: StaffContext = ReadRoles):
     disciplines = db.scalars(
-        select(models.Discipline).order_by(models.Discipline.name.asc())
+        select(models.Discipline)
+        .options(selectinload(models.Discipline.categories))
+        .order_by(models.Discipline.name.asc())
     ).all()
     return [serializers.discipline_full(d, _sorted_categories(d)) for d in disciplines]
 
@@ -56,11 +60,15 @@ def find_one(discipline_id: str, db: DbDep, ctx: StaffContext = ReadRoles):
 @router.patch("/{discipline_id}")
 def update(discipline_id: str, dto: UpdateDisciplineDto, db: DbDep, ctx: StaffContext = WriteRoles):
     discipline = _get_discipline(db, discipline_id)
+    previous_image = discipline.imageUrl
     for key, value in dto.model_dump(exclude_unset=True).items():
-        if value is not None:
+        if key == "imageUrl":
+            discipline.imageUrl = value or None  # "" o null quitan la foto
+        elif value is not None:
             setattr(discipline, key, value)
     db.commit()
-    db.refresh(discipline)
+    if discipline.imageUrl != previous_image:
+        delete_upload(previous_image)
     return serializers.discipline_full(discipline, _sorted_categories(discipline))
 
 
@@ -69,5 +77,4 @@ def remove(discipline_id: str, db: DbDep, ctx: StaffContext = WriteRoles):
     discipline = _get_discipline(db, discipline_id)
     discipline.isActive = False
     db.commit()
-    db.refresh(discipline)
     return serializers.discipline_full(discipline, _sorted_categories(discipline))

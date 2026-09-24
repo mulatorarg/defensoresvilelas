@@ -53,7 +53,6 @@ def create(dto: CreateEnrollmentDto, db: DbDep, ctx: StaffContext = Roles):
         raise conflict(
             f"El socio ya está inscripto en {category.discipline.name} - {category.name}"
         )
-    db.refresh(enrollment)
     return serializers.enrollment_full(enrollment)
 
 
@@ -71,5 +70,4 @@ def remove(enrollment_id: str, db: DbDep, ctx: StaffContext = Roles):
     enrollment.status = "INACTIVE"
     enrollment.leftAt = utcnow()
     db.commit()
-    db.refresh(enrollment)
     return serializers.enrollment_full(enrollment)

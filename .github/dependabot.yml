@@ -1,0 +1,47 @@
+# Dependabot: PRs semanales con actualizaciones de dependencias.
+#
+# Las versiones menores y parches de cada ecosistema llegan agrupadas en un solo
+# PR; las mayores, de a una (suelen necesitar cambios). El CI hoy corre solo
+# desde el deploy: antes de mergear un PR, correr localmente `pytest` (backend)
+# o `npm run lint && npm run build` (frontend).
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /apps/backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      backend-menores:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /apps/frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      frontend-menores:
+        update-types: [minor, patch]
+    ignore:
+      # TypeScript 7: esperar a que typescript-eslint lo soporte (propuestas.md 5.4)
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /apps/backend
+    schedule:
+      interval: weekly
+      day: monday

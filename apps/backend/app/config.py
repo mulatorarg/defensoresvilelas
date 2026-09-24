@@ -47,6 +47,16 @@ def _club_timezone() -> str:
 # Zona horaria del club para "hoy", el mes corriente y el cierre de caja (ver clock.py)
 CLUB_TIMEZONE = _club_timezone()
 
+# Captcha del alta online (Cloudflare Turnstile). Opcional: ver captcha.py
+TURNSTILE_SITE_KEY = (os.getenv("TURNSTILE_SITE_KEY") or "").strip() or None
+TURNSTILE_SECRET_KEY = (os.getenv("TURNSTILE_SECRET_KEY") or "").strip() or None
+
+# Pool de conexiones por worker de uvicorn. Conexiones máximas a MariaDB =
+# workers x (DB_POOL_SIZE + DB_MAX_OVERFLOW); con 2 workers y 5+5 son 20, lejos
+# del max_connections por defecto (151) aunque haya varios clubes en el VPS.
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "5"))
+
 # Observabilidad (ver observability.py)
 APP_ENV = os.getenv("APP_ENV", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
