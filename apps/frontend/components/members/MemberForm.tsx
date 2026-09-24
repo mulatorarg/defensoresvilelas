@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Member } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -25,51 +25,29 @@ export function MemberForm({
   onCancel,
   isLoading,
 }: MemberFormProps) {
-  const [form, setForm] = useState<Record<string, unknown>>({
-    firstName: '',
-    lastName: '',
-    dni: '',
-    email: '',
-    phone: '',
-    address: '',
-    birthDate: '',
-    photoUrl: '',
-    status: 'ACTIVE',
-    notes: '',
+  // El formulario se monta de nuevo en cada apertura del modal (key en el padre):
+  // el estado inicial sale directo del socio, sin sincronizar con un efecto.
+  const [form, setForm] = useState<Record<string, unknown>>(() => ({
+    firstName: member?.firstName ?? '',
+    lastName: member?.lastName ?? '',
+    dni: member?.dni ?? '',
+    email: member?.email ?? '',
+    phone: member?.phone ?? '',
+    address: member?.address ?? '',
+    birthDate: member?.birthDate ? member.birthDate.split('T')[0] : '',
+    photoUrl: member?.photoUrl ?? '',
+    status: member?.status ?? 'ACTIVE',
+    notes: member?.notes ?? '',
     playerProfile: {
-      position: '',
-      jerseyNumber: '',
-      federationId: '',
-      medicalPassDue: '',
-      notes: '',
+      position: member?.player?.position ?? '',
+      jerseyNumber: member?.player?.jerseyNumber ?? '',
+      federationId: member?.player?.federationId ?? '',
+      medicalPassDue: member?.player?.medicalPassDue
+        ? member.player.medicalPassDue.split('T')[0]
+        : '',
+      notes: member?.player?.notes ?? '',
     },
-  });
-
-  useEffect(() => {
-    if (member) {
-      setForm({
-        firstName: member.firstName,
-        lastName: member.lastName,
-        dni: member.dni,
-        email: member.email ?? '',
-        phone: member.phone ?? '',
-        address: member.address ?? '',
-        birthDate: member.birthDate ? member.birthDate.split('T')[0] : '',
-        photoUrl: member.photoUrl ?? '',
-        status: member.status,
-        notes: member.notes ?? '',
-        playerProfile: {
-          position: member.player?.position ?? '',
-          jerseyNumber: member.player?.jerseyNumber ?? '',
-          federationId: member.player?.federationId ?? '',
-          medicalPassDue: member.player?.medicalPassDue
-            ? member.player.medicalPassDue.split('T')[0]
-            : '',
-          notes: member.player?.notes ?? '',
-        },
-      });
-    }
-  }, [member]);
+  }));
 
   const updateField = (field: string, value: unknown) => {
     setForm((prev) => ({ ...prev, [field]: value }));

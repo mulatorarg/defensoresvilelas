@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -19,7 +19,7 @@ There is no root `package.json` — each app manages its own dependencies.
 npm install          # Install deps (lockfile lives here)
 npm run dev          # next dev on port 3000
 npm run build        # Static export to apps/frontend/dist
-npm run lint         # eslint (flat config en eslint.config.mjs)
+npm run lint         # next lint
 ```
 
 ### Backend Python (`apps/backend`)

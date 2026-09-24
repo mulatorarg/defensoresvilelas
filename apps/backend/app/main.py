@@ -4,6 +4,7 @@ Réplica del contrato de API del backend NestJS: mismas rutas bajo /api,
 mismo formato de errores y misma base MariaDB (tablas en español).
 """
 from datetime import datetime, timezone
+from decimal import InvalidOperation
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -61,6 +62,16 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
     return JSONResponse(
         status_code=400,
         content={"statusCode": 400, "message": messages, "error": "Bad Request"},
+    )
+
+
+@app.exception_handler(InvalidOperation)
+async def invalid_decimal_handler(_request: Request, _exc: InvalidOperation):
+    # Red de seguridad: un monto no numérico que se escape de la validación
+    # de los DTOs responde 400 en lugar de 500.
+    return JSONResponse(
+        status_code=400,
+        content={"statusCode": 400, "message": "Monto inválido", "error": "Bad Request"},
     )
 
 

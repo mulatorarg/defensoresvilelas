@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { todayLocal } from '@/lib/dates';
 
 interface TransactionFormProps {
   onSubmit: (data: Record<string, unknown>) => void;
@@ -35,7 +36,7 @@ export function TransactionForm({
     category: 'Gastos varios',
     amount: '',
     description: '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocal(),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

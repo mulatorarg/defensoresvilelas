@@ -5,6 +5,7 @@ import { Fee } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { todayLocal } from '@/lib/dates';
 
 interface PaymentFormProps {
   fee: Fee;
@@ -33,7 +34,7 @@ export function PaymentForm({
     amount: remaining.toFixed(2),
     method: 'CASH',
     reference: '',
-    paidAt: new Date().toISOString().split('T')[0],
+    paidAt: todayLocal(),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

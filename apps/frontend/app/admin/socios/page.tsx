@@ -294,6 +294,7 @@ export default function SociosPage() {
         }
       >
         <MemberForm
+          key={editingMember?.id ?? 'new'}
           member={editingMember}
           onSubmit={handleSubmit}
           onCancel={handleCloseModal}

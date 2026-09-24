@@ -6,6 +6,9 @@ from sqlalchemy import func, select
 
 from .. import models, serializers
 from ..deps import DbDep, StaffContext, require_roles
+from ..models import utcnow
+from .fees import FEE_LOAD_OPTIONS
+from .members import MEMBER_LOAD_OPTIONS
 from ..utils import parse_date, parse_datetime
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -19,7 +22,8 @@ def _num(value) -> float:
 
 @router.get("/dashboard")
 def dashboard(db: DbDep, ctx: StaffContext = Roles):
-    now = datetime.now()
+    # Las fechas se guardan en UTC (models.utcnow): el mes se calcula igual
+    now = utcnow()
     first_day = datetime(now.year, now.month, 1)
     if now.month == 12:
         last_day = datetime(now.year, 12, 31, 23, 59, 59)
@@ -96,7 +100,9 @@ def members_report(
             )
         )
 
-    items = db.scalars(query.order_by(models.Member.lastName.asc())).all()
+    items = db.scalars(
+        query.options(*MEMBER_LOAD_OPTIONS).order_by(models.Member.lastName.asc())
+    ).all()
     return {
         "items": [serializers.member_full(m) for m in items],
         "total": len(items),
@@ -116,7 +122,9 @@ def fees_report(
     if status:
         query = query.where(models.Fee.status == status)
 
-    items = db.scalars(query.order_by(models.Fee.createdAt.desc())).all()
+    items = db.scalars(
+        query.options(*FEE_LOAD_OPTIONS).order_by(models.Fee.createdAt.desc())
+    ).all()
 
     sub = query.subquery()
     sums = db.execute(

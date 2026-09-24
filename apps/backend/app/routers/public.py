@@ -4,14 +4,15 @@ from decimal import Decimal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from .. import models, mp, serializers
 from ..deps import DbDep, get_club_config
 from ..errors import bad_request, conflict, not_found
 from ..ids import new_id
 from ..models import utcnow
-from ..utils import parse_date
+from ..schemas import OptionalEmail
+from ..utils import next_member_number, parse_date
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
@@ -21,7 +22,7 @@ class RegisterMemberDto(BaseModel):
     lastName: str = Field(min_length=1)
     dni: str = Field(min_length=6)
     birthDate: str = Field(min_length=8)  # YYYY-MM-DD
-    email: str | None = None
+    email: OptionalEmail = None
     phone: str | None = None
     categoryId: str | None = None
 
@@ -53,8 +54,6 @@ def register(dto: RegisterMemberDto, db: DbDep):
         )
 
     birth = parse_date(dto.birthDate)
-    count = db.scalar(select(func.count()).select_from(models.Member))
-
     member = models.Member(
         id=new_id(),
         firstName=dto.firstName.strip(),
@@ -64,7 +63,7 @@ def register(dto: RegisterMemberDto, db: DbDep):
         phone=dto.phone,
         birthDate=datetime(birth.year, birth.month, birth.day),
         status="ACTIVE",
-        memberNumber=str(count + 1).zfill(5),
+        memberNumber=next_member_number(db),
         notes="Alta online desde la web",
     )
     db.add(member)
@@ -158,6 +157,7 @@ def disciplines(db: DbDep):
                     "ageTo": c.ageTo,
                     "gender": c.gender,
                     "schedule": c.schedule,
+                    "feeAmount": serializers.dec(c.feeAmount),
                 }
                 for c in sorted(d.categories, key=lambda c: c.name)
                 if c.isActive

@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Category, Discipline, Member } from '@/lib/types';
+import { Category, Discipline } from '@/lib/types';
+import { getCategory } from '@/lib/api';
+import { todayLocal } from '@/lib/dates';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 
@@ -11,9 +13,15 @@ interface AttendanceRecord {
   notes: string;
 }
 
+interface EnrolledMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  dni: string;
+}
+
 interface AttendanceTakerProps {
   disciplines: Discipline[];
-  members: Member[];
   onSubmit: (data: {
     categoryId: string;
     date: string;
@@ -25,12 +33,11 @@ interface AttendanceTakerProps {
 
 export function AttendanceTaker({
   disciplines,
-  members,
   onSubmit,
   onCancel,
   isLoading,
 }: AttendanceTakerProps) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocal();
   const [disciplineId, setDisciplineId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [date, setDate] = useState(today);
@@ -41,11 +48,33 @@ export function AttendanceTaker({
     return discipline?.categories ?? [];
   }, [disciplines, disciplineId]);
 
-  const enrolledMembers = useMemo(() => {
-    return members.filter((m) =>
-      m.enrollments.some((e) => e.categoryId === categoryId),
-    );
-  }, [members, categoryId]);
+  // Inscriptos activos de la categoría elegida (sin el tope de 100 del listado de socios)
+  const [enrolledMembers, setEnrolledMembers] = useState<EnrolledMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  const selectCategory = async (id: string) => {
+    setCategoryId(id);
+    setRecords({});
+    setEnrolledMembers([]);
+    setLoadError('');
+    if (!id) return;
+    setLoadingMembers(true);
+    try {
+      const category: { enrollments: { member: EnrolledMember }[] } = await getCategory(id);
+      setEnrolledMembers(
+        category.enrollments
+          .map((e) => e.member)
+          .sort((a, b) =>
+            `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, 'es'),
+          ),
+      );
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'No se pudieron cargar los inscriptos');
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
 
   const disciplineOptions = [
     { value: '', label: 'Seleccionar disciplina' },
@@ -109,7 +138,7 @@ export function AttendanceTaker({
           value={disciplineId}
           onChange={(e) => {
             setDisciplineId(e.target.value);
-            setCategoryId('');
+            selectCategory('');
           }}
           required
         />
@@ -117,7 +146,7 @@ export function AttendanceTaker({
           label="Categoría"
           options={categoryOptions}
           value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
+          onChange={(e) => selectCategory(e.target.value)}
           required
         />
         <div>
@@ -146,7 +175,11 @@ export function AttendanceTaker({
           </div>
 
           <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-96 overflow-y-auto">
-            {enrolledMembers.length === 0 ? (
+            {loadingMembers ? (
+              <p className="p-4 text-sm text-gray-500">Cargando inscriptos...</p>
+            ) : loadError ? (
+              <p className="p-4 text-sm text-red-600">{loadError}</p>
+            ) : enrolledMembers.length === 0 ? (
               <p className="p-4 text-sm text-gray-500">
                 No hay socios inscriptos en esta categoría.
               </p>
@@ -186,7 +219,10 @@ export function AttendanceTaker({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={isLoading || !categoryId}>
+        <Button
+          type="submit"
+          disabled={isLoading || loadingMembers || !categoryId || enrolledMembers.length === 0}
+        >
           {isLoading ? 'Guardando...' : 'Guardar asistencia'}
         </Button>
       </div>

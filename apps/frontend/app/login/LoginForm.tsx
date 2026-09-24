@@ -6,13 +6,22 @@ import { login, setSession } from '@/lib/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
+const IS_DEV = process.env.NODE_ENV === 'development';
+
+/** Sólo rutas internas del admin: evita redirecciones abiertas (?returnTo=https://...). */
+function safeReturnTo(value: string | null): string {
+  if (value && value.startsWith('/admin') && !value.startsWith('//')) return value;
+  return '/admin/';
+}
+
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnTo = searchParams.get('returnTo') ?? '/admin/';
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
 
-  const [email, setEmail] = useState('admin@clubes.local');
-  const [password, setPassword] = useState('admin123');
+  // Las credenciales demo se precargan sólo en desarrollo, nunca en el build productivo
+  const [email, setEmail] = useState(IS_DEV ? 'admin@clubes.local' : '');
+  const [password, setPassword] = useState(IS_DEV ? 'admin123' : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 

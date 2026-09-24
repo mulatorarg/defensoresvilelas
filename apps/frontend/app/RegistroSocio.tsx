@@ -8,6 +8,7 @@ interface Category {
   name: string;
   ageFrom?: number | null;
   ageTo?: number | null;
+  feeAmount?: string | null;
 }
 
 interface Discipline {
@@ -53,9 +54,13 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  // Mismo criterio que el backend: cuota de la categoría si tiene, si no la cuota social
   const amount = useMemo(() => {
-    return Number(monthlyFee ?? 0);
-  }, [monthlyFee]);
+    const category = disciplines
+      .flatMap((d) => d.categories)
+      .find((c) => c.id === form.categoryId);
+    return Number(category?.feeAmount || monthlyFee || 0);
+  }, [disciplines, form.categoryId, monthlyFee]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

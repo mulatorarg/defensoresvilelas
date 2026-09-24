@@ -15,6 +15,7 @@ from .config import (
     MERCADO_PAGO_ACCESS_TOKEN,
     MERCADO_PAGO_WEBHOOK_SECRET,
 )
+from .errors import bad_request
 
 try:
     import mercadopago  # type: ignore
@@ -35,7 +36,8 @@ def webhook_secret(db: Session) -> str | None:
 def _sdk(db: Session):
     token = _access_token(db)
     if not mercadopago or not token:
-        raise RuntimeError("Mercado Pago no está configurado")
+        # 400 con mensaje claro en lugar de un 500 genérico
+        raise bad_request("Mercado Pago no está configurado para este club.")
     return mercadopago.SDK(token)
 
 

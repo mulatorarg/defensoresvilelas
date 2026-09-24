@@ -68,7 +68,7 @@ export function FeeTable({ fees, onRegisterPayment, onPayWithMP }: FeeTableProps
                 <div className="text-xs text-gray-500">DNI {fee.member.dni}</div>
               </td>
               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                {fee.feeType.name}
+                {fee.feeType?.name ?? 'Cuota'}
                 {fee.category && (
                   <div className="text-xs text-gray-500">
                     {fee.category.discipline.name} - {fee.category.name}

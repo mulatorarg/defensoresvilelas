@@ -25,6 +25,7 @@ interface PublicCategory {
   ageFrom?: number | null;
   ageTo?: number | null;
   schedule?: string | null;
+  feeAmount?: string | null;
 }
 
 interface PublicDiscipline {

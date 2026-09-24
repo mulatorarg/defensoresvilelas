@@ -73,44 +73,64 @@ def create_preference(
     return result
 
 
-def _validate_signature(body: dict[str, Any], signature: str, secret: str) -> bool:
-    # Formato de Mercado Pago: ts=timestamp,v1=hash
-    parts = signature.split(",")
-    ts_part = next((p for p in parts if p.startswith("ts=")), None)
-    v1_part = next((p for p in parts if p.startswith("v1=")), None)
-    if not ts_part or not v1_part:
+def _validate_signature(
+    data_id: str, signature: str, request_id: str | None, secret: str
+) -> bool:
+    """Valida el header x-signature de Mercado Pago.
+
+    Formato: "ts=<timestamp>,v1=<hmac>". El HMAC-SHA256 (clave = secret) se
+    calcula sobre el manifest "id:<data.id>;request-id:<x-request-id>;ts:<ts>;"
+    omitiendo las partes que no vienen. Ver:
+    https://www.mercadopago.com.ar/developers/es/docs/your-integrations/notifications/webhooks
+    """
+    parts = dict(
+        p.strip().split("=", 1) for p in signature.split(",") if "=" in p
+    )
+    ts = parts.get("ts")
+    received_hash = parts.get("v1")
+    if not ts or not received_hash:
         return False
 
-    ts = ts_part.replace("ts=", "").strip()
-    received_hash = v1_part.replace("v1=", "").strip()
-    data_id = (body.get("data") or {}).get("id")
-    if not data_id:
-        return False
-
-    template = f"id:{data_id}_ts:{ts}_secret:{secret}"
-    computed = hmac.new(secret.encode(), template.encode(), hashlib.sha256).hexdigest()
+    manifest = f"id:{data_id.lower() if data_id.isalnum() else data_id};"
+    if request_id:
+        manifest += f"request-id:{request_id};"
+    manifest += f"ts:{ts};"
+    computed = hmac.new(secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(computed, received_hash)
+
+
+def _mp_amount(payment_data: dict[str, Any], fallback: Decimal) -> Decimal:
+    raw = payment_data.get("transaction_amount")
+    try:
+        return Decimal(str(raw)) if raw is not None else fallback
+    except (ArithmeticError, ValueError):
+        return fallback
 
 
 # Webhook de MP: público, sin JWT
 @router.post("/mercado-pago/webhook", status_code=201)
 def webhook(
     body: dict[str, Any],
+    request: Request,
     db: DbDep,
     x_signature: str | None = Header(default=None),
+    x_request_id: str | None = Header(default=None),
 ):
     topic = body.get("type") or body.get("topic")
-    data_id = (body.get("data") or {}).get("id")
+    # MP firma el data.id que viaja en la query string (?data.id=...)
+    data_id = request.query_params.get("data.id") or (body.get("data") or {}).get("id")
 
     if topic != "payment" or not data_id:
         return {"received": True}
+    data_id = str(data_id)
 
     secret = mp.webhook_secret(db)
     if secret:
-        if not x_signature or not _validate_signature(body, x_signature, secret):
+        if not x_signature or not _validate_signature(data_id, x_signature, x_request_id, secret):
             raise unauthorized("Firma de webhook inválida")
 
-    payment_data = mp.get_payment(db, str(data_id))
+    # Se consulta el pago a la API de MP: el body del webhook no es confiable
+    payment_data = mp.get_payment(db, data_id)
     status = mp.map_mp_status(payment_data.get("status"))
     external_reference = payment_data.get("external_reference")
 
@@ -123,30 +143,33 @@ def webhook(
 
     existing = db.scalar(
         select(models.Payment).where(
-            models.Payment.reference == str(data_id),
+            models.Payment.reference == data_id,
             models.Payment.method == "MERCADO_PAGO",
         )
     )
 
     if existing:
         existing.status = status
+        if status == "COMPLETED" and existing.paidAt is None:
+            existing.paidAt = utcnow()
     else:
         db.add(
             models.Payment(
                 id=new_id(),
                 memberId=fee.memberId,
                 feeId=fee.id,
-                amount=fee.amount,
+                # Monto efectivamente cobrado (puede ser el saldo de una cuota parcial)
+                amount=_mp_amount(payment_data, fee.amount - (fee.paidAmount or 0)),
                 method="MERCADO_PAGO",
                 status=status,
-                reference=str(data_id),
+                reference=data_id,
                 paidAt=utcnow() if status == "COMPLETED" else None,
             )
         )
     db.flush()
 
-    if status == "COMPLETED":
-        mp.update_fee_status(db, fee.id)
+    # Siempre se recalcula: un pago aprobado que luego se reintegra baja el saldo
+    mp.update_fee_status(db, fee.id)
 
     db.commit()
     return {"received": True}

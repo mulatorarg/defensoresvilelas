@@ -1,17 +1,26 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import selectinload
 
 from .. import models, serializers
 from ..deps import DbDep, StaffContext, require_roles
 from ..errors import conflict, not_found
 from ..ids import new_id
 from ..schemas import CreateMemberDto, UpdateMemberDto
-from ..utils import parse_datetime
+from ..utils import next_member_number, parse_datetime
 
 router = APIRouter(prefix="/api/members", tags=["members"])
 
 ReadRoles = Depends(require_roles("ADMIN", "OPERATOR", "TEACHER", "STAFF"))
 WriteRoles = Depends(require_roles("ADMIN", "OPERATOR"))
+
+# Precarga de relaciones que usa serializers.member_full (evita N+1 en listados)
+MEMBER_LOAD_OPTIONS = (
+    selectinload(models.Member.player),
+    selectinload(models.Member.enrollments)
+    .selectinload(models.Enrollment.category)
+    .selectinload(models.Category.discipline),
+)
 
 
 def _get_member(db, member_id: str) -> models.Member:
@@ -45,8 +54,6 @@ def _apply_player_profile(member: models.Member, dto) -> None:
 def create(dto: CreateMemberDto, db: DbDep, ctx: StaffContext = WriteRoles):
     _ensure_dni_available(db, dto.dni)
 
-    count = db.scalar(select(func.count()).select_from(models.Member))
-
     member = models.Member(
         id=new_id(),
         firstName=dto.firstName,
@@ -59,7 +66,7 @@ def create(dto: CreateMemberDto, db: DbDep, ctx: StaffContext = WriteRoles):
         photoUrl=dto.photoUrl,
         status=dto.status or "ACTIVE",
         notes=dto.notes,
-        memberNumber=str(count + 1).zfill(5),
+        memberNumber=next_member_number(db),
     )
     db.add(member)
 
@@ -79,11 +86,11 @@ def find_all(
     status: str | None = None,
     categoryId: str | None = None,
     disciplineId: str | None = None,
-    page: str | None = None,
-    limit: str | None = None,
+    page: int = 1,
+    limit: int = 20,
 ):
-    page_n = max(1, int(page or "1"))
-    limit_n = min(100, max(1, int(limit or "20")))
+    page_n = max(1, page)
+    limit_n = min(100, max(1, limit))
 
     query = select(models.Member)
 
@@ -120,7 +127,8 @@ def find_all(
 
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     items = db.scalars(
-        query.order_by(models.Member.lastName.asc())
+        query.options(*MEMBER_LOAD_OPTIONS)
+        .order_by(models.Member.lastName.asc(), models.Member.firstName.asc())
         .offset((page_n - 1) * limit_n)
         .limit(limit_n)
     ).all()

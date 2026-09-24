@@ -114,10 +114,27 @@ export default function SocioPage() {
     }
   };
 
-  const refreshQr = async () => {
-    const cardData = await getMemberCard();
-    setQr(await QRCode.toDataURL(cardData.qrPayload, { width: 260, margin: 1 }));
-  };
+  const refreshQr = useCallback(async () => {
+    try {
+      const cardData = await getMemberCard();
+      setQr(await QRCode.toDataURL(cardData.qrPayload, { width: 260, margin: 1 }));
+    } catch (err) {
+      if (err instanceof Error && err.message === 'SESSION_EXPIRED') {
+        setLogged(false);
+        setProfile(null);
+        setFees([]);
+        setQr('');
+      }
+    }
+  }, []);
+
+  // El QR vence a los 5 minutos: se renueva solo cada 4 para que el carnet
+  // mostrado en la puerta siempre sea válido
+  useEffect(() => {
+    if (!logged) return;
+    const id = setInterval(refreshQr, 4 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [logged, refreshQr]);
 
   const handleLogout = () => {
     memberLogout();
@@ -263,7 +280,7 @@ export default function SocioPage() {
                     ↻ Actualizar QR
                   </button>
                   <p className="mt-2 text-[10px] uppercase tracking-wider text-white/25">
-                    El código vence a los 5 minutos
+                    Se renueva automáticamente
                   </p>
                 </div>
               </div>

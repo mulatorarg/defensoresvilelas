@@ -11,6 +11,7 @@ import { Member, Fee, Transaction } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { formatDateOnly } from '@/lib/dates';
 
 interface Summary {
   activeMembers: number;
@@ -220,7 +221,7 @@ export default function ReportesPage() {
                     {f.member.lastName}, {f.member.firstName}
                   </td>
                   <td className="px-4 py-2 text-sm text-gray-600">
-                    {f.feeType.name} {f.period && `(${f.period})`}
+                    {f.feeType?.name ?? 'Cuota'} {f.period && `(${f.period})`}
                   </td>
                   <td className="px-4 py-2 text-sm text-gray-600">{f.status}</td>
                   <td className="px-4 py-2 text-sm text-right">${f.amount}</td>
@@ -283,7 +284,7 @@ export default function ReportesPage() {
               {incomeExpense?.items.map((t) => (
                 <tr key={t.id}>
                   <td className="px-4 py-2 text-sm">
-                    {new Date(t.date ?? t.createdAt).toLocaleDateString('es-AR')}
+                    {formatDateOnly(t.date ?? t.createdAt)}
                   </td>
                   <td className="px-4 py-2 text-sm">
                     <span

@@ -108,7 +108,7 @@ export interface Fee {
     lastName: string;
     dni: string;
   };
-  feeType: { id: string; name: string };
+  feeType: { id: string; name: string } | null;
   category?: {
     id: string;
     name: string;

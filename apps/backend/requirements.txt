@@ -1,12 +1,12 @@
-# Backend Python — versiones fijadas (últimas estables a 2026-07-27)
-fastapi==0.140.7
-uvicorn[standard]==0.51.0
-SQLAlchemy==2.0.51
-PyMySQL==1.2.0
-cryptography==49.0.0
-python-dotenv==1.2.2
+# Backend Python - versiones fijadas (últimas estables a 2026-09-23)
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+SQLAlchemy==2.0.54
+PyMySQL==1.2.3
+cryptography==50.0.1
+python-dotenv==1.2.3
 email-validator==2.3.0
-PyJWT==2.13.0
+PyJWT==2.15.0
 bcrypt==5.0.0
 cuid2==2.0.1
-mercadopago==3.3.1
+mercadopago==3.6.0

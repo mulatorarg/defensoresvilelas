@@ -16,12 +16,29 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     headers,
   });
 
+  if (res.status === 401 && token && typeof window !== 'undefined') {
+    // Token vencido o revocado: se limpia la sesión y se vuelve al login
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('user');
+    const returnTo = encodeURIComponent(window.location.pathname);
+    // Recarga completa a propósito: descarta el estado de la sesión vencida
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/login/?returnTo=${returnTo}`);
+    throw new Error('Tu sesión expiró. Volvé a ingresar.');
+  }
+
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: 'Error desconocido' }));
-    throw new Error(error.message ?? 'Error en la petición');
+    throw new Error(errorMessage(error.message) ?? 'Error en la petición');
   }
 
   return res.json();
+}
+
+/** La API responde `message` como string o, en errores de validación, como array. */
+function errorMessage(message: unknown): string | undefined {
+  if (Array.isArray(message)) return message.join(', ');
+  return typeof message === 'string' ? message : undefined;
 }
 
 export interface MemberFilters {
@@ -98,6 +115,10 @@ export function deleteDiscipline(id: string) {
 // Categorías
 export function getCategories(disciplineId?: string) {
   return apiFetch(`/api/categories${buildQueryString({ disciplineId })}`);
+}
+
+export function getCategory(id: string) {
+  return apiFetch(`/api/categories/${id}`);
 }
 
 export function createCategory(data: Record<string, unknown>) {
@@ -323,8 +344,7 @@ async function publicFetch2(path: string, body: Record<string, unknown>) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = Array.isArray(data.message) ? data.message.join(', ') : data.message;
-    throw new Error(msg ?? 'Error en la petición');
+    throw new Error(errorMessage(data.message) ?? 'Error en la petición');
   }
   return data;
 }
@@ -349,7 +369,11 @@ export function memberLogout() {
 export function getMemberInfo() {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('memberInfo');
-  return raw ? JSON.parse(raw) : null;
+  try {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function memberFetch(path: string) {
@@ -364,7 +388,7 @@ async function memberFetch(path: string) {
   }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: 'Error' }));
-    throw new Error(error.message ?? 'Error en la petición');
+    throw new Error(errorMessage(error.message) ?? 'Error en la petición');
   }
   return res.json();
 }

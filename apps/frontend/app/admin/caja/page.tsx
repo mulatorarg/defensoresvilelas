@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { TransactionForm } from '@/components/cash/TransactionForm';
+import { formatDateOnly, todayLocal } from '@/lib/dates';
 
 interface CashClosure {
   transactionsIncome: number;
@@ -25,7 +26,7 @@ interface CashClosure {
 export default function CajaPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [closure, setClosure] = useState<CashClosure | null>(null);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayLocal);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -157,7 +158,7 @@ export default function CajaPage() {
                   <p className="text-sm text-gray-600 mt-1">{t.description}</p>
                 )}
                 <p className="text-xs text-gray-500">
-                  {new Date(t.date).toLocaleDateString('es-AR')}
+                  {formatDateOnly(t.date)}
                 </p>
               </div>
               <div className="flex items-center gap-4">

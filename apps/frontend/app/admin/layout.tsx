@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { clearSession, getUser } from '@/lib/auth';
+import { clearSession, useStoredUser } from '@/lib/auth';
 import { getPublicClub } from '@/lib/api';
 import AuthGuard from '@/components/AuthGuard';
 import { FeedbackProvider } from '@/components/ui/Feedback';
@@ -58,7 +58,7 @@ export default function AdminLayout({
   const pathname = usePathname();
   const [club, setClub] = useState<ClubInfo>({ name: 'Mi Club' });
   const [menuOpen, setMenuOpen] = useState(false);
-  const user = typeof window !== 'undefined' ? getUser() : null;
+  const user = useStoredUser();
 
   useEffect(() => {
     getPublicClub()

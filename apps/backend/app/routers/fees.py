@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from .. import models, serializers
 from ..deps import DbDep, StaffContext, require_roles
@@ -13,6 +14,14 @@ from ..utils import parse_datetime
 router = APIRouter(prefix="/api/fees", tags=["fees"])
 
 Roles = Depends(require_roles("ADMIN", "OPERATOR"))
+
+# Precarga de relaciones que usa serializers.fee_list_item (evita N+1 en listados)
+FEE_LOAD_OPTIONS = (
+    selectinload(models.Fee.member),
+    selectinload(models.Fee.feeType),
+    selectinload(models.Fee.category).selectinload(models.Category.discipline),
+    selectinload(models.Fee.payments),
+)
 
 
 def _target_member_ids(db, dto: GenerateFeesDto) -> list[str]:
@@ -64,7 +73,7 @@ def generate(dto: GenerateFeesDto, db: DbDep, ctx: StaffContext = Roles):
         if dto.amount
         else (category.feeAmount if category and category.feeAmount else Decimal("0"))
     )
-    if amount == 0:
+    if amount <= 0:
         raise bad_request(
             "Debe indicar un monto o la categoría debe tener cuota definida"
         )
@@ -111,11 +120,11 @@ def find_all(
     status: str | None = None,
     period: str | None = None,
     categoryId: str | None = None,
-    page: str | None = None,
-    limit: str | None = None,
+    page: int = 1,
+    limit: int = 20,
 ):
-    page_n = max(1, int(page or "1"))
-    limit_n = min(100, max(1, int(limit or "20")))
+    page_n = max(1, page)
+    limit_n = min(100, max(1, limit))
 
     query = select(models.Fee)
     if memberId:
@@ -129,7 +138,8 @@ def find_all(
 
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     items = db.scalars(
-        query.order_by(models.Fee.createdAt.desc())
+        query.options(*FEE_LOAD_OPTIONS)
+        .order_by(models.Fee.createdAt.desc())
         .offset((page_n - 1) * limit_n)
         .limit(limit_n)
     ).all()

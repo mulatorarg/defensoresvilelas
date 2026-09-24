@@ -1,39 +1,36 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Attendance, Discipline, Member } from '@/lib/types';
+import { Attendance, Discipline } from '@/lib/types';
 import {
   getAttendances,
   getDisciplines,
-  getMembers,
   bulkCreateAttendance,
   deleteAttendance,
 } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { AttendanceTaker } from '@/components/attendances/AttendanceTaker';
+import { formatDateOnly, todayLocal } from '@/lib/dates';
 
 export default function AsistenciasPage() {
   const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [takerOpen, setTakerOpen] = useState(false);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocal();
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [attData, discData, membersData] = await Promise.all([
+      const [attData, discData] = await Promise.all([
         getAttendances({ date: today }),
         getDisciplines(),
-        getMembers({ limit: 1000 }),
       ]);
       setAttendances(attData);
       setDisciplines(discData);
-      setMembers(membersData.items);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Error al cargar');
     } finally {
@@ -99,7 +96,7 @@ export default function AsistenciasPage() {
                   {att.category.discipline.name} - {att.category.name}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {new Date(att.date).toLocaleDateString('es-AR')} —{' '}
+                  {formatDateOnly(att.date)} —{' '}
                   {att.present ? 'Presente' : 'Ausente'}
                   {att.notes && ` · ${att.notes}`}
                 </p>
@@ -123,7 +120,6 @@ export default function AsistenciasPage() {
       >
         <AttendanceTaker
           disciplines={disciplines}
-          members={members}
           onSubmit={handleSubmit}
           onCancel={() => setTakerOpen(false)}
           isLoading={saving}

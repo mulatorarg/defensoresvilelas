@@ -1,20 +1,52 @@
 """DTOs de entrada (Pydantic) equivalentes a los class-validator del backend Nest."""
-from typing import Annotated
+from decimal import Decimal, InvalidOperation
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, StringConstraints
+
+
+def _blank_to_none(value):
+    # Los formularios mandan "" en los campos opcionales vacíos
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
+
+def _decimal_validator(*, allow_zero: bool):
+    def check(value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            amount = Decimal(str(value).strip())
+        except InvalidOperation:
+            raise ValueError("debe ser un número válido")
+        if not amount.is_finite() or amount < 0 or (amount == 0 and not allow_zero):
+            raise ValueError("debe ser un monto positivo")
+        return str(amount)
+
+    return check
+
 
 # email-validator rechaza dominios reservados (.local, usados en dev/seed);
-# se usa un patrón permisivo equivalente al @IsEmail de class-validator
+# se usa un patrón permisivo equivalente al @IsEmail de class-validator.
+# Un string vacío se interpreta como "sin email".
 EmailStr = Annotated[
     str, StringConstraints(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ]
+OptionalEmail = Annotated[EmailStr | None, BeforeValidator(_blank_to_none)]
 
-MemberStatusLiteral = str  # ACTIVE | INACTIVE | SUSPENDED (validado en runtime)
+# Montos: llegan como string (contrato del frontend) y se validan como decimales
+Amount = Annotated[str, AfterValidator(_decimal_validator(allow_zero=False))]
+OptionalAmount = Annotated[
+    str | None, BeforeValidator(_blank_to_none), AfterValidator(_decimal_validator(allow_zero=True))
+]
 
-MEMBER_STATUSES = {"ACTIVE", "INACTIVE", "SUSPENDED"}
-GENDERS = {"MALE", "FEMALE", "MIXED"}
-PAYMENT_METHODS = {"CASH", "TRANSFER", "MERCADO_PAGO", "DEBIT", "CREDIT", "OTHER"}
-TRANSACTION_TYPES = {"INCOME", "EXPENSE"}
+Period = Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+
+MemberStatus = Literal["ACTIVE", "INACTIVE", "SUSPENDED"]
+Gender = Literal["MALE", "FEMALE", "MIXED"]
+PaymentMethod = Literal["CASH", "TRANSFER", "MERCADO_PAGO", "DEBIT", "CREDIT", "OTHER"]
+TransactionType = Literal["INCOME", "EXPENSE"]
 
 
 class LoginDto(BaseModel):
@@ -34,12 +66,12 @@ class CreateMemberDto(BaseModel):
     firstName: str = Field(min_length=1)
     lastName: str = Field(min_length=1)
     dni: str = Field(min_length=1)
-    email: EmailStr | None = None
+    email: OptionalEmail = None
     phone: str | None = None
     address: str | None = None
     birthDate: str | None = None
     photoUrl: str | None = None
-    status: str | None = None
+    status: MemberStatus | None = None
     notes: str | None = None
     playerProfile: PlayerProfileDto | None = None
 
@@ -48,12 +80,12 @@ class UpdateMemberDto(BaseModel):
     firstName: str | None = None
     lastName: str | None = None
     dni: str | None = None
-    email: EmailStr | None = None
+    email: OptionalEmail = None
     phone: str | None = None
     address: str | None = None
     birthDate: str | None = None
     photoUrl: str | None = None
-    status: str | None = None
+    status: MemberStatus | None = None
     notes: str | None = None
     playerProfile: PlayerProfileDto | None = None
 
@@ -77,8 +109,8 @@ class CreateCategoryDto(BaseModel):
     name: str = Field(min_length=1)
     ageFrom: int | None = None
     ageTo: int | None = None
-    gender: str | None = None
-    feeAmount: str | None = None
+    gender: Gender | None = None
+    feeAmount: OptionalAmount = None
     schedule: str | None = None
     isActive: bool | None = None
 
@@ -88,8 +120,8 @@ class UpdateCategoryDto(BaseModel):
     name: str | None = None
     ageFrom: int | None = None
     ageTo: int | None = None
-    gender: str | None = None
-    feeAmount: str | None = None
+    gender: Gender | None = None
+    feeAmount: OptionalAmount = None
     schedule: str | None = None
     isActive: bool | None = None
 
@@ -133,18 +165,18 @@ class UpdateFeeTypeDto(BaseModel):
 
 
 class GenerateFeesDto(BaseModel):
-    period: str = Field(min_length=1)  # YYYY-MM
+    period: Period  # YYYY-MM
     feeTypeId: str = Field(min_length=1)
     categoryId: str | None = None
-    amount: str | None = None
+    amount: OptionalAmount = None
     dueDate: str | None = None
     memberIds: list[str] | None = None
 
 
 class CreatePaymentDto(BaseModel):
     feeId: str = Field(min_length=1)
-    amount: str = Field(min_length=1)
-    method: str
+    amount: Amount
+    method: PaymentMethod
     reference: str | None = None
     paidAt: str | None = None
 
@@ -154,9 +186,9 @@ class CreatePreferenceDto(BaseModel):
 
 
 class CreateTransactionDto(BaseModel):
-    type: str
+    type: TransactionType
     category: str = Field(min_length=1)
-    amount: str = Field(min_length=1)
+    amount: Amount
     description: str | None = None
     date: str | None = None
 

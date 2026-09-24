@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getDashboardSummary } from '@/lib/api';
-import { getUser } from '@/lib/auth';
+import { useStoredUser } from '@/lib/auth';
 
 interface Summary {
   activeMembers: number;
@@ -75,7 +75,7 @@ const QUICK_ACTIONS = [
 export default function AdminPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
-  const user = typeof window !== 'undefined' ? getUser() : null;
+  const user = useStoredUser();
 
   useEffect(() => {
     getDashboardSummary()

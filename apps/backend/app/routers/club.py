@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from .. import serializers
+from ..schemas import OptionalAmount, OptionalEmail
 from ..deps import DbDep, get_club_config, require_roles
 
 router = APIRouter(prefix="/api/club", tags=["club"])
@@ -19,12 +20,12 @@ class UpdateClubConfigDto(BaseModel):
     secondaryColor: str | None = None
     address: str | None = None
     phone: str | None = None
-    email: str | None = None
+    email: OptionalEmail = None
     whatsapp: str | None = None
     instagram: str | None = None
     facebook: str | None = None
     website: str | None = None
-    monthlyFee: str | None = None
+    monthlyFee: OptionalAmount = None
     mpAccessToken: str | None = None
     mpWebhookSecret: str | None = None
 
