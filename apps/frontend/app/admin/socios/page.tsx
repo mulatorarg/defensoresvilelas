@@ -7,6 +7,7 @@ import {
   createMember,
   updateMember,
   deleteMember,
+  resetMemberPin,
   getDisciplines,
   createEnrollment,
   deleteEnrollment,
@@ -134,6 +135,23 @@ export default function SociosPage() {
     }
   };
 
+  const handleResetPin = async (member: Member) => {
+    const ok = await confirmAction({
+      title: `¿Blanquear el PIN de ${member.firstName} ${member.lastName}?`,
+      message:
+        'Se cierran sus sesiones abiertas en el portal del socio. En el próximo ingreso va a tener que crear un PIN nuevo.',
+      confirmLabel: 'Blanquear PIN',
+    });
+    if (!ok) return;
+    try {
+      await resetMemberPin(member.id);
+      toast(`PIN de ${member.firstName} blanqueado`);
+      fetchMembers();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al blanquear el PIN', 'error');
+    }
+  };
+
   const handleEnroll = (member: Member) => setEnrollingMember(member);
   const handleCloseEnrollment = () => setEnrollingMember(null);
 
@@ -248,6 +266,7 @@ export default function SociosPage() {
             members={members}
             onEdit={handleEdit}
             onDelete={handleDelete}
+            onResetPin={handleResetPin}
             onEnroll={handleEnroll}
             onRemoveEnrollment={handleRemoveEnrollment}
           />

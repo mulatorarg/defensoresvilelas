@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
 import {
+  changeMemberPin,
   getMemberCard,
   getMemberFees,
   getMemberInfo,
@@ -51,6 +52,16 @@ const formatMoney = (value: string | number) =>
     maximumFractionDigits: 0,
   });
 
+const PIN_PATTERN = '[0-9]{4,6}';
+
+const onlyDigits = (value: string) => value.replace(/[^0-9]/g, '');
+
+const PIN_FIELDS = [
+  ['current', 'PIN actual', 'current-password'],
+  ['next', 'PIN nuevo (4 a 6 números)', 'new-password'],
+  ['confirm', 'Repetí el PIN nuevo', 'new-password'],
+] as const;
+
 const gradientBg = {
   backgroundImage: 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
 };
@@ -63,8 +74,16 @@ export default function SocioPage() {
   const [qr, setQr] = useState<string>('');
   const [dni, setDni] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  const [pin, setPin] = useState('');
+  // Primer ingreso: el socio todavía no tiene PIN y tiene que crear uno
+  const [settingPin, setSettingPin] = useState(false);
+  const [newPin, setNewPin] = useState('');
+  const [newPinConfirm, setNewPinConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pinPanel, setPinPanel] = useState(false);
+  const [pinForm, setPinForm] = useState({ current: '', next: '', confirm: '' });
+  const [pinMessage, setPinMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     getPublicClub()
@@ -99,9 +118,23 @@ export default function SocioPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (settingPin && newPin !== newPinConfirm) {
+      setError('Los PIN no coinciden.');
+      return;
+    }
     setLoading(true);
     try {
-      await memberLogin(dni, birthDate);
+      const result = await memberLogin(
+        settingPin ? { dni, birthDate, newPin } : { dni, birthDate, pin: pin || undefined },
+      );
+      if (result.pinSetupRequired) {
+        setSettingPin(true);
+        return;
+      }
+      setSettingPin(false);
+      setPin('');
+      setNewPin('');
+      setNewPinConfirm('');
       await loadData();
     } catch (err) {
       setError(
@@ -135,6 +168,25 @@ export default function SocioPage() {
     const id = setInterval(refreshQr, 4 * 60 * 1000);
     return () => clearInterval(id);
   }, [logged, refreshQr]);
+
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinMessage(null);
+    if (pinForm.next !== pinForm.confirm) {
+      setPinMessage({ ok: false, text: 'Los PIN nuevos no coinciden.' });
+      return;
+    }
+    try {
+      await changeMemberPin(pinForm.current, pinForm.next);
+      setPinForm({ current: '', next: '', confirm: '' });
+      setPinMessage({ ok: true, text: 'PIN actualizado. Se cerraron tus otras sesiones.' });
+    } catch (err) {
+      setPinMessage({
+        ok: false,
+        text: err instanceof Error ? err.message : 'No pudimos cambiar el PIN.',
+      });
+    }
+  };
 
   const handleLogout = () => {
     memberLogout();
@@ -182,7 +234,9 @@ export default function SocioPage() {
               </p>
               <h1 className="font-display text-3xl font-bold">Tu club, en tu bolsillo</h1>
               <p className="mt-2 text-sm text-white/50">
-                Ingresá con tu DNI y fecha de nacimiento.
+                {settingPin
+                  ? 'Es tu primer ingreso: creá un PIN de 4 a 6 números para proteger tu cuenta.'
+                  : 'Ingresá con tu DNI, fecha de nacimiento y PIN.'}
               </p>
             </div>
 
@@ -199,23 +253,70 @@ export default function SocioPage() {
                 <input
                   required
                   placeholder="DNI"
+                  aria-label="DNI"
                   value={dni}
                   onChange={(e) => setDni(e.target.value)}
                   className={inputClass}
                   inputMode="numeric"
+                  disabled={settingPin}
                 />
                 <div>
                   <input
                     required
                     type="date"
+                    aria-label="Fecha de nacimiento"
                     value={birthDate}
                     onChange={(e) => setBirthDate(e.target.value)}
                     className={inputClass + ' [color-scheme:dark]'}
+                    disabled={settingPin}
                   />
                   <p className="mt-1 pl-1 text-[10px] uppercase tracking-wider text-white/30">
                     Fecha de nacimiento
                   </p>
                 </div>
+                {settingPin ? (
+                  <>
+                    <input
+                      required
+                      type="password"
+                      placeholder="Nuevo PIN (4 a 6 números)"
+                      aria-label="Nuevo PIN"
+                      value={newPin}
+                      onChange={(e) => setNewPin(onlyDigits(e.target.value))}
+                      className={inputClass}
+                      inputMode="numeric"
+                      autoComplete="new-password"
+                      pattern={PIN_PATTERN}
+                      maxLength={6}
+                      autoFocus
+                    />
+                    <input
+                      required
+                      type="password"
+                      placeholder="Repetí el PIN"
+                      aria-label="Repetir PIN"
+                      value={newPinConfirm}
+                      onChange={(e) => setNewPinConfirm(onlyDigits(e.target.value))}
+                      className={inputClass}
+                      inputMode="numeric"
+                      autoComplete="new-password"
+                      pattern={PIN_PATTERN}
+                      maxLength={6}
+                    />
+                  </>
+                ) : (
+                  <input
+                    type="password"
+                    placeholder="PIN (si ya creaste uno)"
+                    aria-label="PIN"
+                    value={pin}
+                    onChange={(e) => setPin(onlyDigits(e.target.value))}
+                    className={inputClass}
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    maxLength={6}
+                  />
+                )}
               </div>
               <button
                 type="submit"
@@ -223,8 +324,25 @@ export default function SocioPage() {
                 className="mt-5 w-full rounded-full py-3.5 text-sm font-bold text-white shadow-[0_12px_45px_-10px_var(--color-primary)] transition-all hover:scale-[1.02] disabled:opacity-70"
                 style={gradientBg}
               >
-                {loading ? 'Ingresando…' : 'Ingresar'}
+                {loading ? 'Ingresando…' : settingPin ? 'Crear PIN e ingresar' : 'Ingresar'}
               </button>
+              {settingPin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingPin(false);
+                    setNewPin('');
+                    setNewPinConfirm('');
+                    setError('');
+                  }}
+                  className="mt-3 w-full text-center text-[12px] text-white/40 hover:text-white"
+                >
+                  Volver
+                </button>
+              )}
+              <p className="mt-4 text-center text-[12px] text-white/35">
+                ¿Olvidaste tu PIN? Pedí en secretaría que lo blanqueen.
+              </p>
               <p className="mt-4 text-center text-[12px] text-white/35">
                 ¿Todavía no sos socio?{' '}
                 <Link href="/#asociate" className="font-semibold text-primary hover:underline">
@@ -356,6 +474,59 @@ export default function SocioPage() {
                   <p className="mt-3 text-[13px] text-white/45">
                     No estás inscripto en ninguna disciplina. Consultá en secretaría para sumarte.
                   </p>
+                )}
+              </section>
+
+              <section className="rounded-3xl border border-white/8 bg-white/3 p-6">
+                <button
+                  onClick={() => {
+                    setPinPanel((v) => !v);
+                    setPinMessage(null);
+                  }}
+                  className="flex w-full items-center justify-between text-left"
+                  aria-expanded={pinPanel}
+                >
+                  <h2 className="font-display text-lg font-bold">Cambiar PIN</h2>
+                  <span className="text-[12px] text-white/40">{pinPanel ? 'Cerrar' : 'Abrir'}</span>
+                </button>
+                {pinPanel && (
+                  <form onSubmit={handleChangePin} className="mt-4 space-y-3">
+                    {pinMessage && (
+                      <p
+                        className={`rounded-xl border px-4 py-2.5 text-[13px] ${
+                          pinMessage.ok
+                            ? 'border-primary/30 bg-primary/10 text-white/80'
+                            : 'border-red-500/30 bg-red-500/10 text-red-300'
+                        }`}
+                      >
+                        {pinMessage.text}
+                      </p>
+                    )}
+                    {PIN_FIELDS.map(([key, label, autoComplete]) => (
+                      <input
+                        key={key}
+                        required
+                        type="password"
+                        placeholder={label}
+                        aria-label={label}
+                        value={pinForm[key]}
+                        onChange={(e) =>
+                          setPinForm((f) => ({ ...f, [key]: onlyDigits(e.target.value) }))
+                        }
+                        className={inputClass}
+                        inputMode="numeric"
+                        autoComplete={autoComplete}
+                        pattern={key === 'current' ? undefined : PIN_PATTERN}
+                        maxLength={6}
+                      />
+                    ))}
+                    <button
+                      type="submit"
+                      className="w-full rounded-full border border-white/15 py-3 text-sm font-semibold text-white/80 transition-colors hover:border-white/40 hover:text-white"
+                    >
+                      Guardar PIN
+                    </button>
+                  </form>
                 )}
               </section>
             </div>

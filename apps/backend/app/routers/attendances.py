@@ -48,6 +48,7 @@ def upsert_attendance(
     day: date,
     present: bool,
     notes: str | None,
+    created_by: str | None = None,
 ) -> models.Attendance:
     attendance = db.scalar(
         select(models.Attendance).where(
@@ -67,6 +68,7 @@ def upsert_attendance(
             date=day,
             present=present,
             notes=notes,
+            createdBy=created_by,
         )
         db.add(attendance)
     return attendance
@@ -84,6 +86,7 @@ def create(dto: CreateAttendanceDto, db: DbDep, ctx: StaffContext = Roles):
         parse_date(dto.date),
         dto.present if dto.present is not None else True,
         dto.notes,
+        ctx.user.get("sub"),
     )
     db.commit()
     db.refresh(attendance)
@@ -96,7 +99,10 @@ def bulk_create(dto: BulkAttendanceDto, db: DbDep, ctx: StaffContext = Roles):
     day = parse_date(dto.date)
 
     for record in dto.records:
-        upsert_attendance(db, dto.categoryId, record.memberId, day, record.present, record.notes)
+        upsert_attendance(
+            db, dto.categoryId, record.memberId, day, record.present, record.notes,
+            ctx.user.get("sub"),
+        )
     db.commit()
 
     return find_all(db=db, ctx=ctx, categoryId=dto.categoryId, date=dto.date)

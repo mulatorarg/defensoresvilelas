@@ -29,3 +29,7 @@ def not_found(message="Not Found") -> HTTPException:
 
 def conflict(message="Conflict") -> HTTPException:
     return _exc(409, message, "Conflict")
+
+
+def too_many_requests(message="Too Many Requests") -> HTTPException:
+    return _exc(429, message, "Too Many Requests")

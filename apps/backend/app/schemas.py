@@ -193,9 +193,29 @@ class CreateTransactionDto(BaseModel):
     date: str | None = None
 
 
+class VoidTransactionDto(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+Pin = Annotated[str, Field(pattern=r"^\d{4,6}$")]
+
+
 class LoginMemberDto(BaseModel):
     dni: str = Field(min_length=1)
     birthDate: str = Field(min_length=1)  # YYYY-MM-DD
+    pin: str | None = Field(default=None, max_length=6)
+    # Solo en el primer ingreso (socio sin PIN): el PIN que define
+    newPin: Pin | None = None
+
+
+class ChangePinDto(BaseModel):
+    currentPin: str = Field(min_length=1, max_length=6)
+    newPin: Pin
+
+
+class ChangePasswordDto(BaseModel):
+    currentPassword: str = Field(min_length=1)
+    newPassword: str = Field(min_length=8, max_length=128)
 
 
 class ScanMemberDto(BaseModel):

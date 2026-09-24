@@ -84,9 +84,14 @@ PORT=3030
 # MariaDB del host, visto desde el contenedor
 DATABASE_URL=mysql://clubes_user:una-clave-fuerte@host.docker.internal:3306/clubes_db
 
-# Seguridad — generar con: openssl rand -hex 32
+# Seguridad - generar con: openssl rand -hex 32
 JWT_SECRET=................................
 QR_SECRET=................................
+# Opcional: clave Fernet para cifrar las credenciales de Mercado Pago en la base
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# SECRETS_KEY=................................
+# Opcional: 1 para ver /api/docs en producción (por defecto apagado)
+# ENABLE_DOCS=0
 
 # URLs públicas
 FRONTEND_URL=https://defensores.yacarestudio.com
@@ -111,6 +116,8 @@ sudo certbot --nginx -d defensores.yacarestudio.com
 
 (DNS: registro A de `defensores.yacarestudio.com` → IP del VPS.)
 
+Cuando cambia `nginx.conf` en el repo (por ejemplo, el rate limit del alta online), volver a copiarlo y recargar. Si certbot ya agregó el bloque 443, conviene editar el archivo de `sites-available` a mano con los cambios en lugar de pisarlo. Los headers de seguridad (CSP, HSTS, etc.) los pone la app: si el archivo del VPS todavía tiene `add_header X-Frame-Options ...`, sacarlo.
+
 ## 3. Primer deploy y siguientes
 
 ```bash
@@ -119,9 +126,10 @@ git push origin main        # eso es todo
 
 El workflow ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
 
-1. Buildea `apps/backend/Dockerfile` (compila el frontend adentro) y pushea `latest` + SHA a GHCR.
-2. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml`, inyectándole la imagen `ghcr.io/<repo>:latest` (cada build publica además el tag `<sha>` para rollbacks).
-3. `docker compose pull && up -d` — en el primer arranque `db_init` crea las tablas y `seed` deja la config del club + el admin (idempotentes: nunca pisan datos).
+1. Corre el CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)): tests del backend contra MariaDB, `alembic check`, lint y build del frontend. Si falla, no sigue.
+2. Buildea `apps/backend/Dockerfile` (compila el frontend adentro) y pushea `latest` + SHA a GHCR.
+3. Copia `docker-compose.prod.yml` al VPS como `docker-compose.yml` (inyectándole la imagen `ghcr.io/<repo>:latest`; cada build publica además el tag `<sha>` para rollbacks) y `scripts/backup.sh`.
+4. `docker compose pull && up -d`: al arrancar, `db_init` aplica las migraciones de Alembic y `seed` deja la config del club + el admin (idempotentes: nunca pisan datos).
 
 También se puede disparar a mano desde la pestaña Actions (`workflow_dispatch`).
 
@@ -129,8 +137,12 @@ También se puede disparar a mano desde la pestaña Actions (`workflow_dispatch`
 
 ```bash
 curl https://defensores.yacarestudio.com/health
-# → {"status":"ok", ...}
+# → {"status":"ok","database":"ok", ...}   (503 si la base no responde)
+docker compose ps                 # el servicio app debe figurar "healthy"
+docker compose logs app | grep "Base '"   # migración aplicada, p. ej. "(migración 0002)"
 ```
+
+Si una migración falla (por ejemplo, por datos duplicados que impiden crear un unique), el contenedor no arranca y el log dice qué resolver. Después de corregirlo, `docker compose up -d` retoma desde el paso que faltaba.
 
 Después: entrar a `/login` con `ADMIN_EMAIL` / `ADMIN_PASSWORD` y completar la configuración del club (logo, colores, cuota social, credenciales de Mercado Pago) vía `PATCH /api/club/config`.
 
@@ -140,14 +152,23 @@ Volumen montado en `/app/recursos` dentro del contenedor y servido por la API en
 
 ## 5. Backups
 
+[`scripts/backup.sh`](scripts/backup.sh) (el deploy lo copia a `/home/deploy/defensores/scripts/`) hace el dump de la base del club + un tar de `recursos/`, borra lo que tenga más de 14 días y, si hay remoto de rclone configurado, copia todo fuera del VPS. Lee `DATABASE_URL` del `.env` del club.
+
+Programarlo una vez con `crontab -e` (usuario `deploy`):
+
 ```bash
-# /etc/cron.daily/backup-defensores  (la base vive en el MariaDB del host)
-mariadb-dump -u root clubes_db | gzip > /backups/clubes_db_$(date +%F).sql.gz
-tar czf /backups/recursos_$(date +%F).tar.gz -C /home/deploy/defensores recursos/
-find /backups -mtime +30 -delete
+15 4 * * * /home/deploy/defensores/scripts/backup.sh /home/deploy/defensores >> /home/deploy/defensores/backups/backup.log 2>&1
 ```
 
-Guardar copia fuera del VPS (rclone a storage externo).
+Opcional en el `.env`: `BACKUP_DIR`, `BACKUP_RETENTION_DAYS` y `BACKUP_RCLONE_REMOTE` (p. ej. `b2:clubes-backups/defensores`, después de `rclone config`). Un backup que vive solo en el VPS no protege de perder el VPS: configurar el remoto.
+
+Restaurar:
+
+```bash
+gunzip -c backups/db-clubes_db-AAAAMMDD-HHMMSS.sql.gz | mariadb -u clubes_user -p clubes_db
+tar -xzf backups/recursos-AAAAMMDD-HHMMSS.tar.gz -C /home/deploy/defensores
+docker compose restart app
+```
 
 ## 6. Operación
 
@@ -159,9 +180,11 @@ docker compose restart app        # reinicio
 docker compose pull && docker compose up -d   # actualizar a mano (sin Actions)
 ```
 
-**Rollback**: dos opciones — re-ejecutar el workflow desde el commit anterior (pestaña Actions → Re-run), o en el VPS editar la línea `image:` del `docker-compose.yml` con el SHA anterior y `docker compose up -d`.
+**Rollback**: dos opciones - re-ejecutar el workflow desde el commit anterior (pestaña Actions → Re-run), o en el VPS editar la línea `image:` del `docker-compose.yml` con el SHA anterior y `docker compose up -d`. OJO: la imagen vieja no deshace migraciones. Las migraciones aditivas (columnas o tablas nuevas) no molestan a una versión anterior; si el rollback cruza una que no lo es, primero hacer un backup y bajar la base con la imagen nueva: `docker compose run --rm app python -m app.db_init --downgrade <revisión>`.
 
-**Cambios de schema**: `db_init` crea tablas nuevas automáticamente; no altera columnas existentes (para eso, migración manual planificada).
+**Cambios de schema**: van por migraciones de Alembic en el repo; se aplican solas en el arranque (`db_init`).
+
+**Errores**: con `SENTRY_DSN` en el `.env` los errores no manejados llegan a Sentry o GlitchTip. Cada respuesta trae `X-Request-ID`, que aparece en las líneas de `docker compose logs app` de ese request.
 
 ## 7. Desarrollo local (referencia rápida)
 
@@ -174,6 +197,7 @@ cd apps/backend
 .venv\Scripts\python -m app.db_init --reset
 .venv\Scripts\python -m app.seed --demo
 .venv\Scripts\uvicorn app.main:app --reload --port 3001
+.venv\Scripts\pytest              # tests (base clubes_test, se recrea en cada corrida)
 cd apps/frontend && npm run dev    # → http://localhost:3000
 ```
 

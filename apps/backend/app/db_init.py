@@ -1,8 +1,12 @@
-"""Crea la base de datos (si no existe) y todas las tablas.
+"""Crea la base de datos (si no existe) y aplica las migraciones de Alembic.
 
-Reemplaza al viejo `prisma db push`:
-    python -m app.db_init            # crea DB + tablas
-    python -m app.db_init --reset    # dropea todas las tablas y las recrea
+    python -m app.db_init            # crea la DB y corre `alembic upgrade head`
+    python -m app.db_init --reset    # dropea todas las tablas y migra desde cero
+    python -m app.db_init --downgrade 0001   # vuelve a una migración anterior (rollback)
+
+Las bases creadas antes de Alembic (con `create_all`) se adoptan solas: la
+migración 0001 crea solo lo que falta y agrega las columnas nuevas.
+Corre en cada arranque del contenedor (ver docker-compose*.yml).
 """
 import sys
 from urllib.parse import urlsplit
@@ -11,7 +15,7 @@ from sqlalchemy import create_engine, text
 
 from .config import DATABASE_URL
 from .database import _to_sqlalchemy_url, engine
-from .models import Base
+from .migrate import current_revision, downgrade_to, upgrade_head
 
 
 def ensure_database() -> str:
@@ -40,6 +44,12 @@ def main() -> None:
     reset = "--reset" in sys.argv
     db_name = ensure_database()
 
+    if "--downgrade" in sys.argv:
+        target = sys.argv[sys.argv.index("--downgrade") + 1]
+        downgrade_to(target)
+        print(f"Base '{db_name}' en la migración {current_revision()}.")
+        return
+
     if reset:
         print(f"Eliminando tablas de {db_name}...")
         # Dropea TODAS las tablas de la base (incluye tablas de esquemas viejos)
@@ -56,8 +66,8 @@ def main() -> None:
                 conn.execute(text(f"DROP TABLE IF EXISTS `{table}`"))
             conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
 
-    Base.metadata.create_all(engine)
-    print(f"Base '{db_name}' lista ({len(Base.metadata.tables)} tablas).")
+    upgrade_head()
+    print(f"Base '{db_name}' lista (migración {current_revision()}).")
 
 
 if __name__ == "__main__":

@@ -2,11 +2,12 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from .. import serializers
+from .. import crypto, serializers
+from ..audit import audit
 from ..schemas import OptionalAmount, OptionalEmail
-from ..deps import DbDep, get_club_config, require_roles
+from ..deps import DbDep, StaffContext, get_club_config, require_roles
 
 router = APIRouter(prefix="/api/club", tags=["club"])
 
@@ -26,8 +27,8 @@ class UpdateClubConfigDto(BaseModel):
     facebook: str | None = None
     website: str | None = None
     monthlyFee: OptionalAmount = None
-    mpAccessToken: str | None = None
-    mpWebhookSecret: str | None = None
+    mpAccessToken: str | None = Field(default=None, max_length=500)
+    mpWebhookSecret: str | None = Field(default=None, max_length=500)
 
 
 @router.get("")
@@ -41,14 +42,25 @@ def get_config(db: DbDep, _=Depends(require_roles("ADMIN"))):
 
 
 @router.patch("/config")
-def update_config(dto: UpdateClubConfigDto, db: DbDep, _=Depends(require_roles("ADMIN"))):
+def update_config(
+    dto: UpdateClubConfigDto, db: DbDep, ctx: StaffContext = Depends(require_roles("ADMIN"))
+):
     config = get_club_config(db)
     fields = dto.model_dump(exclude_unset=True)
     if "monthlyFee" in fields:
         raw = fields.pop("monthlyFee")
         config.monthlyFee = Decimal(raw) if raw else None
+    for key in ("mpAccessToken", "mpWebhookSecret"):
+        if key not in fields:
+            continue
+        raw = (fields.pop(key) or "").strip()
+        # El GET devuelve el valor enmascarado: si vuelve igual, no se toca
+        if crypto.is_masked(raw):
+            continue
+        setattr(config, key, crypto.encrypt(raw or None))
     for key, value in fields.items():
         setattr(config, key, value)
+    audit(db, ctx, "UPDATE", "club_config", config.id, sorted(dto.model_fields_set))
     db.commit()
     db.refresh(config)
     return serializers.club_config_full(config)

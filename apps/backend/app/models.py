@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -55,11 +56,12 @@ class ClubConfig(Base):
     facebook: Mapped[str | None] = mapped_column(String(191))
     website: Mapped[str | None] = mapped_column("sitio_web", String(191))
     monthlyFee: Mapped[Decimal | None] = mapped_column("monto_cuota_social", Numeric(10, 2))
-    mpAccessToken: Mapped[str | None] = mapped_column("mp_access_token", String(255))
-    mpWebhookSecret: Mapped[str | None] = mapped_column("mp_webhook_secret", String(255))
+    # Cifrados en reposo (ver crypto.py): usar mp.access_token()/mp.webhook_secret()
+    mpAccessToken: Mapped[str | None] = mapped_column("mp_access_token", Text)
+    mpWebhookSecret: Mapped[str | None] = mapped_column("mp_webhook_secret", Text)
     settings: Mapped[str | None] = mapped_column("configuracion_extra", Text, default="{}")
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
 
 # ---------------------------
@@ -78,8 +80,10 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column("telefono", String(191))
     role: Mapped[str] = mapped_column("rol", String(191), default="STAFF")
     isActive: Mapped[bool] = mapped_column("activo", Boolean, default=True)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    # Se incrementa para invalidar todos los tokens emitidos (claim "tv")
+    tokenVersion: Mapped[int] = mapped_column("version_token", Integer, default=0, server_default="0")
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
 
 # ---------------------------
@@ -99,12 +103,17 @@ class Member(Base):
     email: Mapped[str | None] = mapped_column("correo", String(191))
     phone: Mapped[str | None] = mapped_column("telefono", String(191))
     address: Mapped[str | None] = mapped_column("direccion", String(191))
-    birthDate: Mapped[datetime | None] = mapped_column("fecha_nacimiento", DateTime(3))
+    birthDate: Mapped[datetime | None] = mapped_column("fecha_nacimiento", DateTime())
     photoUrl: Mapped[str | None] = mapped_column("url_foto", String(191))
     status: Mapped[str] = mapped_column("estado", String(191), default="ACTIVE")
     notes: Mapped[str | None] = mapped_column("notas", Text)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    # PIN del portal del socio (bcrypt); NULL = se define en el primer ingreso
+    pinHash: Mapped[str | None] = mapped_column("hash_pin", String(191))
+    pinFailedAttempts: Mapped[int] = mapped_column("pin_intentos_fallidos", Integer, default=0, server_default="0")
+    pinLockedUntil: Mapped[datetime | None] = mapped_column("pin_bloqueado_hasta", DateTime())
+    tokenVersion: Mapped[int] = mapped_column("version_token", Integer, default=0, server_default="0")
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
     player: Mapped["PlayerProfile | None"] = relationship(back_populates="member", uselist=False)
     enrollments: Mapped[list["Enrollment"]] = relationship(back_populates="member")
@@ -118,7 +127,7 @@ class PlayerProfile(Base):
     position: Mapped[str | None] = mapped_column("posicion", String(191))
     jerseyNumber: Mapped[int | None] = mapped_column("numero_camiseta", Integer)
     federationId: Mapped[str | None] = mapped_column("id_federacion", String(191))
-    medicalPassDue: Mapped[datetime | None] = mapped_column("vencimiento_pase_medico", DateTime(3))
+    medicalPassDue: Mapped[datetime | None] = mapped_column("vencimiento_pase_medico", DateTime())
     notes: Mapped[str | None] = mapped_column("notas", Text)
 
     member: Mapped["Member"] = relationship(back_populates="player")
@@ -137,8 +146,8 @@ class Discipline(Base):
     description: Mapped[str | None] = mapped_column("descripcion", Text)
     icon: Mapped[str | None] = mapped_column("icono", String(191))
     isActive: Mapped[bool] = mapped_column("activo", Boolean, default=True)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
     categories: Mapped[list["Category"]] = relationship(back_populates="discipline")
 
@@ -155,8 +164,8 @@ class Category(Base):
     feeAmount: Mapped[Decimal | None] = mapped_column("monto_cuota", Numeric(10, 2))
     schedule: Mapped[str | None] = mapped_column("horario", String(191))
     isActive: Mapped[bool] = mapped_column("activo", Boolean, default=True)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
     discipline: Mapped["Discipline"] = relationship(back_populates="categories")
     enrollments: Mapped[list["Enrollment"]] = relationship(back_populates="category")
@@ -165,16 +174,21 @@ class Category(Base):
 class Enrollment(Base):
     __tablename__ = "inscripciones"
     __table_args__ = (
-        UniqueConstraint("socio_id", "categoria_id", "estado"),
+        # Una sola inscripción ACTIVA por socio y categoría; las bajas (activa = NULL)
+        # no cuentan, así se puede inscribir y dar de baja las veces que haga falta
+        UniqueConstraint("socio_id", "categoria_id", "activa", name="uq_inscripciones_activa"),
         Index("ix_inscripciones_categoria", "categoria_id"),
     )
 
     id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)
     memberId: Mapped[str] = mapped_column("socio_id", String(191), ForeignKey("socios.id"))
     categoryId: Mapped[str] = mapped_column("categoria_id", String(191), ForeignKey("categorias.id"))
-    enrolledAt: Mapped[datetime] = mapped_column("inscrito_en", DateTime(3), default=utcnow)
-    leftAt: Mapped[datetime | None] = mapped_column("baja_en", DateTime(3))
+    enrolledAt: Mapped[datetime] = mapped_column("inscrito_en", DateTime(), default=utcnow)
+    leftAt: Mapped[datetime | None] = mapped_column("baja_en", DateTime())
     status: Mapped[str] = mapped_column("estado", String(191), default="ACTIVE")
+    activeKey: Mapped[int | None] = mapped_column(
+        "activa", Integer, Computed("CASE WHEN estado = 'ACTIVE' THEN 1 END", persisted=True)
+    )
 
     member: Mapped["Member"] = relationship(back_populates="enrollments")
     category: Mapped["Category"] = relationship(back_populates="enrollments")
@@ -192,7 +206,7 @@ class FeeType(Base):
     name: Mapped[str] = mapped_column("nombre", String(191))
     description: Mapped[str | None] = mapped_column("descripcion", Text)
     isActive: Mapped[bool] = mapped_column("activo", Boolean, default=True)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
 
 
 class Fee(Base):
@@ -200,6 +214,12 @@ class Fee(Base):
     __table_args__ = (
         Index("ix_cuotas_socio", "socio_id"),
         Index("ix_cuotas_estado", "estado"),
+        # Una cuota por socio, período, tipo y categoría. tipo/categoría pueden ser
+        # NULL (cuota social) y en un unique los NULL no chocan: se usan claves
+        # generadas con COALESCE
+        UniqueConstraint(
+            "socio_id", "periodo", "tipo_clave", "categoria_clave", name="uq_cuotas_periodo"
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)
@@ -209,12 +229,18 @@ class Fee(Base):
     period: Mapped[str] = mapped_column("periodo", String(191))
     amount: Mapped[Decimal] = mapped_column("monto", Numeric(10, 2))
     paidAmount: Mapped[Decimal] = mapped_column("monto_pagado", Numeric(10, 2), default=Decimal("0"))
-    dueDate: Mapped[datetime | None] = mapped_column("fecha_vencimiento", DateTime(3))
+    dueDate: Mapped[datetime | None] = mapped_column("fecha_vencimiento", DateTime())
     status: Mapped[str] = mapped_column("estado", String(191), default="PENDING")
     description: Mapped[str | None] = mapped_column("descripcion", Text)
     externalReference: Mapped[str | None] = mapped_column("referencia_externa", String(191))
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
+    feeTypeKey: Mapped[str | None] = mapped_column(
+        "tipo_clave", String(191), Computed("COALESCE(tipo_cuota_id, '')", persisted=True)
+    )
+    categoryKey: Mapped[str | None] = mapped_column(
+        "categoria_clave", String(191), Computed("COALESCE(categoria_id, '')", persisted=True)
+    )
 
     member: Mapped["Member"] = relationship()
     feeType: Mapped["FeeType | None"] = relationship()
@@ -227,6 +253,9 @@ class Payment(Base):
     __table_args__ = (
         Index("ix_pagos_cuota", "cuota_id"),
         Index("ix_pagos_estado", "estado"),
+        # MP reintenta los webhooks: un pago de MP (su id va en referencia) se
+        # registra una sola vez. Los pagos manuales pueden repetir referencia.
+        UniqueConstraint("referencia_mp", name="uq_pagos_referencia_mp"),
     )
 
     id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)
@@ -237,9 +266,13 @@ class Payment(Base):
     status: Mapped[str] = mapped_column("estado", String(191), default="COMPLETED")
     reference: Mapped[str | None] = mapped_column("referencia", String(191))
     metadata_json: Mapped[str | None] = mapped_column("metadatos", Text, default="{}")
-    paidAt: Mapped[datetime | None] = mapped_column("pagado_en", DateTime(3), default=utcnow)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    paidAt: Mapped[datetime | None] = mapped_column("pagado_en", DateTime(), default=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
+    mpReference: Mapped[str | None] = mapped_column(
+        "referencia_mp", String(191),
+        Computed("CASE WHEN metodo = 'MERCADO_PAGO' THEN referencia END", persisted=True),
+    )
 
     fee: Mapped["Fee | None"] = relationship(back_populates="payments")
     member: Mapped["Member | None"] = relationship()
@@ -264,7 +297,7 @@ class Attendance(Base):
     present: Mapped[bool] = mapped_column("presente", Boolean, default=True)
     notes: Mapped[str | None] = mapped_column("notas", String(191))
     createdBy: Mapped[str | None] = mapped_column("creado_por", String(191))
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
 
     member: Mapped["Member"] = relationship()
     category: Mapped["Category"] = relationship()
@@ -285,9 +318,15 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column("monto", Numeric(10, 2))
     description: Mapped[str | None] = mapped_column("descripcion", Text)
     date: Mapped[date] = mapped_column("fecha", Date, default=lambda: utcnow().date())
+    # Los movimientos no se borran: se anulan con motivo (el cierre de caja de
+    # días pasados no cambia sin dejar rastro)
+    status: Mapped[str] = mapped_column("estado", String(32), default="ACTIVE", server_default="ACTIVE")
+    voidedAt: Mapped[datetime | None] = mapped_column("anulada_en", DateTime())
+    voidedBy: Mapped[str | None] = mapped_column("anulada_por", String(191))
+    voidReason: Mapped[str | None] = mapped_column("motivo_anulacion", Text)
     createdBy: Mapped[str | None] = mapped_column("creado_por", String(191))
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
 
 # ---------------------------
@@ -306,9 +345,9 @@ class News(Base):
     content: Mapped[str | None] = mapped_column("contenido", LONGTEXT)
     imageUrl: Mapped[str | None] = mapped_column("url_imagen", String(191))
     published: Mapped[bool] = mapped_column("publicada", Boolean, default=False)
-    publishedAt: Mapped[datetime | None] = mapped_column("publicada_en", DateTime(3))
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    publishedAt: Mapped[datetime | None] = mapped_column("publicada_en", DateTime())
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
 
 class Event(Base):
@@ -318,11 +357,11 @@ class Event(Base):
     id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)
     title: Mapped[str] = mapped_column("titulo", String(191))
     description: Mapped[str | None] = mapped_column("descripcion", Text)
-    eventDate: Mapped[datetime] = mapped_column("fecha_evento", DateTime(3))
+    eventDate: Mapped[datetime] = mapped_column("fecha_evento", DateTime())
     location: Mapped[str | None] = mapped_column("lugar", String(191))
     isPublic: Mapped[bool] = mapped_column("publico", Boolean, default=True)
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
 
 # ---------------------------
@@ -337,8 +376,8 @@ class Team(Base):
     disciplineId: Mapped[str] = mapped_column("disciplina_id", String(191), ForeignKey("disciplinas.id"))
     name: Mapped[str] = mapped_column("nombre", String(191))
     categoryId: Mapped[str | None] = mapped_column("categoria_id", String(191), ForeignKey("categorias.id"))
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
     discipline: Mapped["Discipline"] = relationship()
     category: Mapped["Category | None"] = relationship()
@@ -354,11 +393,33 @@ class Match(Base):
     awayTeamId: Mapped[str] = mapped_column("equipo_visitante_id", String(191), ForeignKey("equipos.id"))
     homeScore: Mapped[int | None] = mapped_column("goles_local", Integer)
     awayScore: Mapped[int | None] = mapped_column("goles_visitante", Integer)
-    matchDate: Mapped[datetime] = mapped_column("fecha_partido", DateTime(3))
+    matchDate: Mapped[datetime] = mapped_column("fecha_partido", DateTime())
     location: Mapped[str | None] = mapped_column("lugar", String(191))
     status: Mapped[str] = mapped_column("estado", String(191), default="SCHEDULED")
-    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(3), default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(3), default=utcnow, onupdate=utcnow)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)
+    updatedAt: Mapped[datetime] = mapped_column("actualizado_en", DateTime(), default=utcnow, onupdate=utcnow)
 
     homeTeam: Mapped["Team"] = relationship(foreign_keys=[homeTeamId])
     awayTeam: Mapped["Team"] = relationship(foreign_keys=[awayTeamId])
+
+
+# ---------------------------
+# Auditoría (operaciones de dinero y cambios sensibles)
+# ---------------------------
+
+
+class AuditLog(Base):
+    __tablename__ = "auditoria"
+    __table_args__ = (
+        Index("ix_auditoria_fecha", "creado_en"),
+        Index("ix_auditoria_entidad", "entidad", "entidad_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(191), primary_key=True, default=new_id)
+    userId: Mapped[str | None] = mapped_column("usuario_id", String(191))
+    userEmail: Mapped[str | None] = mapped_column("usuario_correo", String(191))
+    action: Mapped[str] = mapped_column("accion", String(191))
+    entity: Mapped[str] = mapped_column("entidad", String(191))
+    entityId: Mapped[str | None] = mapped_column("entidad_id", String(191))
+    detail: Mapped[str | None] = mapped_column("detalle", Text)
+    createdAt: Mapped[datetime] = mapped_column("creado_en", DateTime(), default=utcnow)

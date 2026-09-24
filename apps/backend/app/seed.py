@@ -15,7 +15,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from . import models
+from . import clock, models
 from .database import SessionLocal
 from .ids import new_id
 from .models import utcnow
@@ -140,7 +140,8 @@ def _pick_category(categories, birth_year: int, sex: str):
 
 def _seed_members_and_activity(db) -> None:
     now = utcnow()
-    period = f"{now.year}-{now.month:02d}"
+    period = clock.current_period()  # mes corriente en hora del club
+    today = clock.local_today()
     categories = db.scalars(select(models.Category)).all()
 
     fee_type = db.scalar(select(models.FeeType).where(models.FeeType.name == "Cuota social"))
@@ -180,7 +181,7 @@ def _seed_members_and_activity(db) -> None:
                     id=new_id(),
                     categoryId=category.id,
                     memberId=member.id,
-                    date=(now - timedelta(days=back)).date(),
+                    date=today - timedelta(days=back),
                     present=(i + back) % 4 != 0,
                 ))
 
@@ -217,7 +218,7 @@ def _seed_members_and_activity(db) -> None:
         db.add(models.Transaction(
             id=new_id(), type=tx_type, category=category_name,
             amount=Decimal(amount), description=description,
-            date=(now - timedelta(days=2 + i * 3)).date(),
+            date=today - timedelta(days=2 + i * 3),
         ))
 
 

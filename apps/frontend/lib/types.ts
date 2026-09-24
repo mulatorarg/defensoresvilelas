@@ -64,6 +64,7 @@ export interface Member {
   photoUrl?: string;
   status: MemberStatus;
   notes?: string;
+  hasPin?: boolean;
   createdAt: string;
   updatedAt: string;
   player?: PlayerProfile;
@@ -141,7 +142,33 @@ export interface Transaction {
   amount: string;
   description?: string;
   date: string;
+  // Los movimientos no se borran: se anulan con motivo y dejan de sumar
+  status: 'ACTIVE' | 'VOIDED';
+  voidedAt?: string | null;
+  voidReason?: string | null;
   createdAt: string;
+}
+
+// Montos como string decimal (ver lib/money.ts)
+export interface DashboardSummary {
+  period: string;
+  activeMembers: number;
+  totalMembers: number;
+  feesThisMonth: number;
+  collectedThisMonth: string;
+  incomeThisMonth: string;
+  expenseThisMonth: string;
+  balanceThisMonth: string;
+}
+
+export interface CashClosure {
+  date: string;
+  transactionsIncome: string;
+  transactionsExpense: string;
+  paymentsIncome: string;
+  totalIncome: string;
+  totalExpense: string;
+  balance: string;
 }
 
 export interface Attendance {

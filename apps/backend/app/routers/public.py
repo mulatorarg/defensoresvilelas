@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from .. import models, mp, serializers
+from .. import clock, models, serializers
 from ..deps import DbDep, get_club_config
 from ..errors import bad_request, conflict, not_found
 from ..ids import new_id
@@ -25,11 +25,21 @@ class RegisterMemberDto(BaseModel):
     email: OptionalEmail = None
     phone: str | None = None
     categoryId: str | None = None
+    # Honeypot: campo oculto en el formulario; un humano lo deja vacío
+    website: str | None = None
 
 
 @router.post("/register", status_code=201)
 def register(dto: RegisterMemberDto, db: DbDep):
-    """Alta de socio desde la landing, con primera cuota paga (pago simulado)."""
+    """Alta de socio desde la landing.
+
+    La primera cuota queda PENDIENTE: se paga en secretaría (o con Mercado Pago
+    desde el portal cuando esté habilitado). Nunca se registra un pago acá: el
+    endpoint es público y no cobra nada.
+    """
+    if dto.website:
+        raise bad_request("No pudimos procesar el registro.")
+
     exists = db.scalar(select(models.Member.id).where(models.Member.dni == dto.dni.strip()))
     if exists:
         raise conflict(
@@ -83,8 +93,7 @@ def register(dto: RegisterMemberDto, db: DbDep):
         db.add(fee_type)
         db.flush()
 
-    now = utcnow()
-    period = f"{now.year}-{now.month:02d}"
+    period = clock.current_period()
     fee = models.Fee(
         id=new_id(),
         memberId=member.id,
@@ -96,21 +105,6 @@ def register(dto: RegisterMemberDto, db: DbDep):
         status="PENDING",
     )
     db.add(fee)
-    db.flush()
-
-    # Pago simulado (checkout online de prueba; Mercado Pago vendrá después)
-    db.add(models.Payment(
-        id=new_id(),
-        memberId=member.id,
-        feeId=fee.id,
-        amount=amount,
-        method="TRANSFER",
-        status="COMPLETED",
-        reference="simulacion-web",
-        paidAt=now,
-    ))
-    db.flush()
-    mp.update_fee_status(db, fee.id)
     db.commit()
     db.refresh(member)
     db.refresh(fee)
@@ -131,7 +125,10 @@ def register(dto: RegisterMemberDto, db: DbDep):
         "category": (
             {"id": category.id, "name": category.name} if category else None
         ),
-        "message": "¡Bienvenido al club! Ya podés ingresar al portal del socio con tu DNI y fecha de nacimiento.",
+        "message": (
+            "¡Bienvenido al club! Tu primera cuota quedó pendiente de pago: podés "
+            "abonarla en secretaría. Ya podés ingresar al portal del socio."
+        ),
     }
 
 

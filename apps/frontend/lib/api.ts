@@ -87,6 +87,10 @@ export function deleteMember(id: string) {
   });
 }
 
+export function resetMemberPin(id: string) {
+  return apiFetch(`/api/members/${id}/reset-pin`, { method: 'POST' });
+}
+
 // Disciplinas
 export function getDisciplines() {
   return apiFetch('/api/disciplines');
@@ -279,8 +283,12 @@ export function createTransaction(data: Record<string, unknown>) {
   });
 }
 
-export function deleteTransaction(id: string) {
-  return apiFetch(`/api/transactions/${id}`, { method: 'DELETE' });
+export function voidTransaction(id: string, reason: string) {
+  return apiFetch(`/api/transactions/${id}/void`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
 }
 
 export function getCashClosure(date: string) {
@@ -330,7 +338,7 @@ export function getPublicMatches(limit = 6) {
   return publicFetch(`/api/public/matches?limit=${limit}`);
 }
 
-// --- Registro público de socios (pago simulado) ---
+// --- Registro público de socios (la primera cuota queda pendiente) ---
 
 export function registerPublicMember(data: Record<string, unknown>) {
   return publicFetch2('/api/public/register', data);
@@ -351,13 +359,27 @@ async function publicFetch2(path: string, body: Record<string, unknown>) {
 
 // --- Portal del socio ---
 
-export async function memberLogin(dni: string, birthDate: string) {
-  const data = await publicFetch2('/api/member-portal/login', { dni, birthDate });
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('memberToken', data.accessToken);
-    localStorage.setItem('memberInfo', JSON.stringify(data.member));
-  }
-  return data;
+function storeMemberSession(data: { accessToken: string; member: unknown }) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('memberToken', data.accessToken);
+  localStorage.setItem('memberInfo', JSON.stringify(data.member));
+}
+
+/**
+ * Login del socio: DNI + fecha de nacimiento + PIN.
+ * Si el socio todavía no tiene PIN devuelve `{ pinSetupRequired: true }` (sin
+ * sesión) y hay que repetir el login con `newPin`.
+ */
+export async function memberLogin(credentials: {
+  dni: string;
+  birthDate: string;
+  pin?: string;
+  newPin?: string;
+}): Promise<{ pinSetupRequired: true } | { pinSetupRequired?: false }> {
+  const data = await publicFetch2('/api/member-portal/login', credentials);
+  if (data.pinSetupRequired) return { pinSetupRequired: true };
+  storeMemberSession(data);
+  return {};
 }
 
 export function memberLogout() {
@@ -403,4 +425,20 @@ export function getMemberFees() {
 
 export function getMemberCard() {
   return memberFetch('/api/member-portal/me/card');
+}
+
+export async function changeMemberPin(currentPin: string, newPin: string) {
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem('memberToken') ?? '' : '';
+  const res = await fetch(`${API_BASE}/api/member-portal/me/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ currentPin, newPin }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(errorMessage(data.message) ?? 'No pudimos cambiar el PIN');
+  }
+  // El cambio cierra las otras sesiones y devuelve un token nuevo
+  storeMemberSession(data);
 }

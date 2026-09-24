@@ -5,15 +5,17 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from .. import models, mp, serializers
+from .. import clock, models, mp, serializers
+from ..audit import audit
 from ..config import API_PUBLIC_URL
 from ..deps import DbDep, StaffContext, require_roles
-from ..errors import not_found, unauthorized
+from ..errors import bad_request, not_found, unauthorized
 from ..ids import new_id
 from ..models import utcnow
 from ..schemas import CreatePaymentDto, CreatePreferenceDto
-from ..utils import parse_datetime
+from ..utils import is_date_only, parse_date, parse_datetime
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -27,26 +29,44 @@ def _notification_url(request: Request) -> str:
     return f"{base}/api/payments/mercado-pago/webhook"
 
 
+def _paid_at(db, value: str | None):
+    """Fecha de pago: un <input type="date"> manda solo la fecha, que es un día
+    local del club (no medianoche UTC, que en Argentina cae el día anterior)."""
+    if not value:
+        return utcnow()
+    if is_date_only(value):
+        return clock.local_date_to_utc(parse_date(value))
+    return parse_datetime(value)
+
+
 @router.post("", status_code=201)
 def create(dto: CreatePaymentDto, db: DbDep, ctx: StaffContext = Roles):
     fee = db.get(models.Fee, dto.feeId)
     if not fee:
         raise not_found("Cuota no encontrada")
+    if fee.status in ("PAID", "CANCELLED"):
+        raise bad_request("La cuota ya está paga" if fee.status == "PAID" else "La cuota está anulada")
+
+    amount = Decimal(dto.amount)
+    balance = fee.amount - (fee.paidAmount or Decimal("0"))
+    if amount > balance:
+        raise bad_request(f"El monto supera el saldo pendiente de la cuota (${balance})")
 
     pay = models.Payment(
         id=new_id(),
         memberId=fee.memberId,
         feeId=fee.id,
-        amount=Decimal(dto.amount),
+        amount=amount,
         method=dto.method,
         reference=dto.reference,
-        paidAt=parse_datetime(dto.paidAt) if dto.paidAt else utcnow(),
+        paidAt=_paid_at(db, dto.paidAt),
         status="COMPLETED",
     )
     db.add(pay)
     db.flush()
 
     mp.update_fee_status(db, fee.id)
+    audit(db, ctx, "CREATE", "payment", pay.id, serializers.payment(pay))
     db.commit()
     db.refresh(pay)
     return serializers.payment(pay)
@@ -60,10 +80,13 @@ def create_preference(
     if not fee:
         raise not_found("Cuota no encontrada")
 
+    if fee.status in ("PAID", "CANCELLED"):
+        raise bad_request("La cuota no tiene saldo pendiente")
+
     result = mp.create_preference(
         db,
         fee,
-        unit_price=fee.amount,
+        unit_price=fee.amount - (fee.paidAmount or Decimal("0")),
         back_urls=mp.admin_back_urls(),
         notification_url=_notification_url(request),
     )
@@ -124,10 +147,13 @@ def webhook(
         return {"received": True}
     data_id = str(data_id)
 
+    # Sin secreto configurado no se procesa nada: evita que cualquiera dispare
+    # consultas a la API de MP con este endpoint público
     secret = mp.webhook_secret(db)
-    if secret:
-        if not x_signature or not _validate_signature(data_id, x_signature, x_request_id, secret):
-            raise unauthorized("Firma de webhook inválida")
+    if not secret:
+        raise unauthorized("Webhook de Mercado Pago sin secreto configurado")
+    if not x_signature or not _validate_signature(data_id, x_signature, x_request_id, secret):
+        raise unauthorized("Firma de webhook inválida")
 
     # Se consulta el pago a la API de MP: el body del webhook no es confiable
     payment_data = mp.get_payment(db, data_id)
@@ -166,10 +192,21 @@ def webhook(
                 paidAt=utcnow() if status == "COMPLETED" else None,
             )
         )
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # Otra entrega simultánea del mismo webhook ya registró el pago
+        # (unique uq_pagos_referencia_mp): esa entrega recalcula la cuota
+        db.rollback()
+        return {"received": True}
 
     # Siempre se recalcula: un pago aprobado que luego se reintegra baja el saldo
     mp.update_fee_status(db, fee.id)
+    audit(db, None, "MP_WEBHOOK", "fee", fee.id, {
+        "mpPaymentId": data_id,
+        "mpStatus": payment_data.get("status"),
+        "amount": payment_data.get("transaction_amount"),
+    })
 
     db.commit()
     return {"received": True}

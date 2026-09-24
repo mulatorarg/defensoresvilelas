@@ -25,6 +25,9 @@ COPY apps/backend/app ./app
 COPY --from=frontend /build/dist ./frontend-dist
 
 ENV FRONTEND_DIST_PATH=/app/frontend-dist
+# El proceso corre en UTC (se guarda todo en UTC); la hora del club se aplica
+# solo al calcular cortes y al mostrar (CLUB_TIMEZONE, ver app/clock.py)
+ENV TZ=UTC
 EXPOSE 3001
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001"]

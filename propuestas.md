@@ -57,101 +57,131 @@ Verificación: 47 pruebas de humo contra la API con MariaDB (base `clubes_test`,
 
 ## 1. Seguridad
 
-### 1.1 Secretos reales versionados en git - BLOQUEANTE, PENDIENTE
+Aplicado el 2026-09-23 (segunda pasada). Verificación: 62 pruebas de humo contra la API sobre una base creada con el esquema anterior y migrada con `db_init` (tokens, PIN, cifrado, webhook, auditoría, CORS, headers, regresiones), `tsc`, `eslint` (0 errores), `next build` y render en Chrome headless sin violaciones de CSP.
 
-`.env.local.example` está commiteado con valores que parecen los de producción: `JWT_SECRET`, `QR_SECRET` y `ADMIN_PASSWORD`. Cualquiera con acceso al repo (o a un fork o clon viejo) puede firmar tokens de ADMIN.
+Cambios de esquema (los aplica `python -m app.db_init` en el arranque del contenedor, sin SQL manual): `usuarios.version_token`, `socios.hash_pin`, `socios.pin_intentos_fallidos`, `socios.pin_bloqueado_hasta`, `socios.version_token`, tabla `auditoria`, y `configuracion_club.mp_access_token` / `mp_webhook_secret` pasan a `TEXT`. `db_init` ahora agrega columnas e índices faltantes a tablas existentes (`sync_schema`); sigue sin borrar ni renombrar (ver 2.1).
 
-- Rotar `JWT_SECRET`, `QR_SECRET` y la contraseña del admin en el VPS (invalida todas las sesiones, es lo esperado).
+### 1.1 Secretos versionados en git - POSPUESTO
+
+`.env.local.example` tiene valores reales de `JWT_SECRET`, `QR_SECRET` y `ADMIN_PASSWORD`. Se deja así a propósito mientras el repo sea privado y el dominio (`defensores.yacarestudio.com`) sea de pruebas sin datos reales.
+
+OJO, antes de pasar al dominio definitivo o cargar datos reales:
+
+- Rotar `JWT_SECRET`, `QR_SECRET` y la contraseña del admin en el VPS (invalida todas las sesiones, es lo esperado). Rotar `JWT_SECRET` sin `SECRETS_KEY` definido vuelve ilegibles las credenciales de MP guardadas (ver 1.5): definir `SECRETS_KEY` primero o recargarlas después.
 - Reemplazar los valores del archivo por placeholders.
-- Si el repo es o fue público, considerar limpiar el historial (`git filter-repo`) además de rotar: rotar es lo que realmente protege.
+- Si el repo pasa a ser público, limpiar el historial (`git filter-repo`) además de rotar.
 
-### 1.2 El alta online marca la primera cuota como pagada sin cobrar - ALTA, PENDIENTE
+### 1.2 El alta online marcaba la primera cuota como pagada sin cobrar - APLICADO
 
-`POST /api/public/register` crea un pago `COMPLETED` (`simulacion-web`) sin ningún cobro real, y el endpoint es público y sin límite. Cualquiera puede generar socios "al día" y ensuciar la caja y los reportes (el pago suma en el cierre de caja y en el dashboard).
+- `POST /api/public/register` ya no crea el pago simulado (`simulacion-web`): la cuota queda `PENDING` y se paga en secretaría. El formulario dice "Asociarme" y el mensaje final aclara que la cuota está pendiente.
+- Honeypot: campo oculto `website`; si viene completo, 400.
+- `nginx.conf`: zona `register_zone` (5 altas por hora por IP, burst 3). Hay que copiar el archivo al VPS (ver deploy.md).
+- PENDIENTE: el socio se crea `ACTIVE` y puede entrar al portal. Si aparece spam, pasar a `PENDING_APPROVAL` o sumar un captcha (Cloudflare Turnstile). Con Mercado Pago real: crear la preferencia y registrar el pago solo desde el webhook.
 
-- Hasta integrar Mercado Pago: crear la cuota como `PENDING` sin pago, o dejar el socio en estado `PENDING_APPROVAL` para que secretaría lo confirme.
-- Con MP: crear la preferencia y registrar el pago solo desde el webhook.
-- Agregar rate limit al endpoint en Nginx (hoy solo están los logins) y un captcha liviano (Cloudflare Turnstile o hCaptcha).
+### 1.3 Login del socio con datos semipúblicos - APLICADO
 
-### 1.3 Login del socio con datos semipúblicos - ALTA, PENDIENTE
+- PIN de 4 a 6 dígitos (bcrypt). En el primer ingreso, DNI + fecha de nacimiento responde `pinSetupRequired` y el portal pide crear el PIN.
+- 5 intentos fallidos bloquean el PIN 15 minutos (429), incluso con el PIN correcto.
+- El socio lo cambia desde el portal (sección "Cambiar PIN"); secretaría lo blanquea desde Socios (ícono de llave, `POST /api/members/{id}/reset-pin`). Ambos cierran las sesiones abiertas del socio.
+- Limitación conocida: quien tenga DNI y fecha de nacimiento de un socio que todavía no creó su PIN puede crearlo primero. Se corrige blanqueando el PIN; la solución de fondo es un código por email/WhatsApp en el primer ingreso.
 
-DNI + fecha de nacimiento siguen siendo el único factor (ítem 6 y §2 de `docs/propuesta-mejoras.md`). Con esos dos datos se ve el perfil y se genera el QR de acceso al club. Propuesta mínima: PIN de 4-6 dígitos que el socio define en el primer ingreso; ideal: código por email/WhatsApp.
+### 1.4 Tokens de staff sin revocación - APLICADO
 
-### 1.4 Tokens de staff sin revocación - ALTA, PENDIENTE
+- Cada request de staff lee el usuario por PK: si está inactivo, cambió de rol o su `version_token` no coincide con el claim `tv` del JWT, se rechaza al instante. El rol se toma de la base, no del token.
+- `POST /api/auth/logout-all` (cierra todas las sesiones propias) y `POST /api/auth/change-password` (cierra las demás y devuelve un token nuevo).
+- Los tokens del socio también llevan `tv` y se validan contra la base (socio dado de baja = 401).
+- Los tokens emitidos antes de este cambio (sin `tv`) siguen valiendo hasta vencer o hasta el primer `logout-all`.
+- PENDIENTE: UI para cambiar la contraseña del staff y ABM de usuarios (ver sección 4).
 
-El JWT dura 7 días y no se consulta la base: un usuario desactivado o al que se le baja el rol sigue operando hasta que vence el token. Opciones, de menor a mayor esfuerzo:
+### 1.5 Credenciales de Mercado Pago en texto plano - APLICADO
 
-- En `get_staff_context`, verificar `usuarios.activo` y tomar el rol desde la base (una consulta por request por PK, costo despreciable).
-- Agregar `token_version` al usuario y rechazar tokens con versión vieja (permite "cerrar todas las sesiones").
-- Access token corto + refresh token rotativo.
+- Cifradas en reposo con Fernet (`crypto.py`, prefijo `enc:`). Clave: `SECRETS_KEY` del `.env`; si no está, se deriva de `JWT_SECRET`. Los valores viejos en texto plano se siguen leyendo y se cifran al volver a guardarlos.
+- `GET /api/club/config` las devuelve enmascaradas (`APP_USR-****1234`); un `PATCH` con el valor enmascarado no las modifica.
 
-### 1.5 Credenciales de Mercado Pago en texto plano - MEDIA, PENDIENTE
+### 1.6 Webhook de MP sin secreto obligatorio - APLICADO
 
-`mp_access_token` y `mp_webhook_secret` se guardan en claro en `configuracion_club` y `GET /api/club/config` los devuelve completos. Cifrarlos en reposo (Fernet con una clave del `.env`; `cryptography` ya es dependencia) y devolverlos enmascarados (`APP_USR-****1234`), aceptando el valor completo solo al escribir.
+Sin secreto de webhook configurado (base o `MERCADO_PAGO_WEBHOOK_SECRET`) el webhook responde 401 y no consulta a MP. Al activar Mercado Pago hay que cargar el secreto que da el panel de MP.
 
-### 1.6 Webhook de MP sin secreto obligatorio - MEDIA, PENDIENTE
+### 1.7 CORS permisivo por defecto - APLICADO
 
-Si no hay `mpWebhookSecret`, el webhook acepta cualquier POST y consulta a MP. No permite falsificar pagos (el estado se lee de la API de MP), pero sí disparar llamadas a MP a voluntad. En producción, exigir el secreto cuando hay access token configurado.
+CORS solo se habilita para el origen de `FRONTEND_URL` y sin `allow_credentials` (la auth va por header, no por cookies). Sin la variable no se permite ningún origen cruzado. Si algún día la web se compila con `NEXT_PUBLIC_API_URL` apuntando a otro dominio, hay que sumarlo al `connect-src` de la CSP.
 
-### 1.7 CORS permisivo por defecto - MEDIA, PENDIENTE
+### 1.8 Headers de seguridad - APLICADO
 
-Sin `FRONTEND_URL`, CORS queda en `*` con `allow_credentials=True`. En producción la web y la API comparten origen, así que CORS podría directamente desactivarse; si se mantiene, fallar cerrado cuando falta la variable.
+La app pone los headers en todas las respuestas (así valen con o sin Nginx): `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` y `Strict-Transport-Security` cuando la request llega por HTTPS (`X-Forwarded-Proto`). Se sacaron de `nginx.conf` para no duplicarlos.
 
-### 1.8 Headers de seguridad - MEDIA, PENDIENTE
+La CSP permite `'unsafe-inline'` en scripts y estilos porque el export estático de Next los emite inline. Aun así bloquea scripts externos, envío de datos a otros dominios (`connect-src`, `form-action`) y el embebido en iframes. PENDIENTE (BAJA): CSP con hashes de los scripts inline generados en el build, para poder quitar `'unsafe-inline'`.
 
-`nginx.conf` ya tiene `X-Content-Type-Options`, `X-Frame-Options` y `Referrer-Policy`. Faltan `Strict-Transport-Security` (después de certbot) y una `Content-Security-Policy`. Con el token en `localStorage`, la CSP es la principal defensa contra XSS. Ojo: la landing usa imágenes de `images.unsplash.com` y fuentes de Google (self-hosted por `next/font`, no requieren excepción).
+### 1.9 Documentación de la API pública en producción - APLICADO
 
-### 1.9 Documentación de la API pública en producción - BAJA, PENDIENTE
+`ENABLE_DOCS=0` apaga `/api/docs` y `/api/openapi.json`. El compose de producción lo pone en 0 por defecto (se prende con `ENABLE_DOCS=1` en el `.env` del VPS).
 
-`/api/docs` y `/api/openapi.json` están expuestos en producción. Deshabilitarlos con una variable (`ENABLE_DOCS=0`) o protegerlos en Nginx.
+### 1.10 Auditoría - APLICADO
 
-### 1.10 Auditoría - MEDIA, PENDIENTE
-
-No queda registro de quién registró un pago, borró un movimiento de caja o dio de baja un socio (`Attendance.createdBy` y `Transaction.createdBy` existen pero nunca se completan). Completar `creado_por` con `ctx.user["sub"]` y agregar una tabla `auditoria` para operaciones de dinero.
+- `Transaction.createdBy` y `Attendance.createdBy` se completan con el usuario.
+- Tabla `auditoria` (`audit.py`): pagos manuales, webhooks de MP, generación de cuotas, altas y bajas de movimientos de caja, edición y baja de socios, blanqueo de PIN, cambios de configuración del club (solo los nombres de campo, nunca los valores de las credenciales), cambio de contraseña y cierre de sesiones.
+- `GET /api/audit` (ADMIN, paginado, filtros `entity`, `entityId`, `userId`). PENDIENTE: pantalla en el admin.
 
 ## 2. Estabilidad y consistencia de datos
 
-### 2.1 Migraciones versionadas - ALTA, PENDIENTE
+Aplicado el 2026-09-23 (tercera pasada). Verificación: suite `pytest` nueva (40 tests contra MariaDB, base creada con las migraciones reales), migraciones probadas sobre base vacía, sobre una base con el esquema de producción (commit `5f4dde3`) y retomando tras un fallo a mitad de camino; `alembic check` sin diferencias entre modelos y base; downgrade/upgrade; backup y restauración completa en una base nueva; `tsc`, `eslint` (0 errores) y `next build`.
 
-`db_init` usa `create_all`, que crea tablas nuevas pero no agrega columnas ni índices a tablas existentes. El próximo cambio de modelo en producción va a requerir SQL a mano. Adoptar Alembic (autogenerate) y correr `alembic upgrade head` en el `command` del compose en lugar de `db_init`.
+### 2.1 Migraciones versionadas - APLICADO
 
-### 2.2 Uniques que respalden la lógica - ALTA, PENDIENTE
+- Alembic (`app/migrations/`). `python -m app.db_init` corre `alembic upgrade head` (sigue siendo el `command` del compose, así que cada deploy migra solo). `--reset` borra todo y migra desde cero.
+- `0001_esquema_base`: el esquema completo. También adopta las bases creadas antes con `create_all` (producción y desarrollo): crea solo las tablas que faltan y agrega las columnas de la sección 1. No hace falta `alembic stamp` a mano.
+- `0002_consistencia_datos`: los cambios de esta sección. Como el DDL de MariaDB no es transaccional, cada paso verifica si ya se aplicó: si falla a mitad (p. ej. por duplicados), se corrige y se vuelve a correr.
+- Cambios de modelo nuevos: `alembic revision --autogenerate -m "..."` desde `apps/backend` (usa `alembic.ini` y `DATABASE_URL`), revisar el archivo generado y commitearlo. El CI corre `alembic check` y falla si `models.py` cambió sin migración.
+- Se quitó `sync_schema` de `db_init` (lo reemplaza la 0001).
 
-Siguen pendientes los ítems 4 y 5 de `docs/propuesta-mejoras.md`:
+### 2.2 Uniques que respalden la lógica - APLICADO
 
-- `pagos (metodo, referencia)` unique: MP reintenta webhooks y dos entregas concurrentes pueden duplicar el pago.
-- `cuotas (socio_id, tipo_cuota_id, categoria_id, periodo)` unique: dos clics en "Generar cuotas" pueden duplicar el período.
-- `Enrollment [socio_id, categoria_id, estado]` como unique impide inscribir, dar de baja y volver a inscribir dos veces (la segunda baja choca con la primera `INACTIVE`). Cambiar por un unique solo sobre inscripciones activas (columna generada `activa = IF(estado='ACTIVE', 1, NULL)`).
+MariaDB no considera iguales los `NULL` en un unique, por eso los tres usan columnas generadas (`STORED`):
 
-### 2.3 Zona horaria del club - ALTA, PENDIENTE
+- `pagos.referencia_mp` = `referencia` solo si `metodo = 'MERCADO_PAGO'`, unique. Los pagos manuales pueden repetir referencia; un pago de MP no se registra dos veces. El webhook atrapa el choque de dos entregas simultáneas y responde OK.
+- `cuotas (socio_id, periodo, tipo_clave, categoria_clave)` unique, con `COALESCE(..., '')` para que valga también en la cuota social (sin categoría). Si dos "Generar cuotas" corren a la vez, el segundo responde 409.
+- `inscripciones.activa` = 1 si `estado = 'ACTIVE'`, si no `NULL`; unique `(socio_id, categoria_id, activa)`. Reemplaza al unique con `estado`: ahora se puede inscribir y dar de baja las veces que haga falta.
+- Si la base ya tiene duplicados, la migración se detiene y los lista; no borra datos.
 
-Todo se guarda en UTC naive, pero los cortes (cierre de caja del día, mes del dashboard, período de la cuota del alta online) se calculan en UTC: un pago cobrado a las 22 h en Argentina cae en el cierre de caja del día siguiente. Agregar `zona_horaria` a `configuracion_club` (default `America/Argentina/Buenos_Aires`) y calcular los rangos con `zoneinfo`.
+### 2.3 Zona horaria del club - APLICADO
 
-### 2.4 Montos como float en reportes - MEDIA, PENDIENTE
+- Criterio único: la base guarda todo en UTC, sin depender de la configuración del VPS ni de MariaDB (la sesión se fija en `time_zone = '+00:00'` al abrir cada conexión y el contenedor corre con `TZ=UTC`). La hora del club es `CLUB_TIMEZONE` en el `.env` (default `America/Argentina/Buenos_Aires`, validada al arrancar): es una constante del proceso, sin consultas a la base. Se agregó `tzdata` para Windows y la imagen slim.
+- El frontend muestra siempre la hora del club, sin importar la zona del navegador (`lib/dates.ts`: `todayLocal`, `currentPeriod`, `formatDate`, `formatDateTime` en 24 h, `formatDateOnly` para fechas de calendario). Probado con MariaDB en `+09:00` y con el navegador simulado en UTC.
+- `clock.py`: "hoy", el mes corriente y el rango UTC de un día local. Lo usan el dashboard, el cierre de caja, el período de la cuota del alta online, la fecha por defecto de los movimientos y el seed demo.
+- Bug corregido de paso: el pago manual manda solo la fecha (`2026-09-23`), que se guardaba como 00:00 UTC (21:00 del día anterior en Argentina) y no aparecía en el cierre de caja del día. Ahora una fecha sin hora es un día local (hora actual si es hoy, mediodía si es otro día).
+- Bug corregido: `parse_datetime` convertía fechas con zona a la hora local del servidor en lugar de UTC.
 
-Los reportes y el cierre de caja devuelven `float` (`_num`, `float(total)`). Mantener `Decimal` y serializar como string, igual que el resto del contrato.
+### 2.4 Montos como float en reportes - APLICADO
 
-### 2.5 Borrado físico de movimientos de caja - MEDIA, PENDIENTE
+Dashboard, reporte de cuotas, ingresos/egresos y cierre de caja devuelven strings decimales, como el resto de la API. El dashboard suma `balanceThisMonth` en el backend. En el frontend, `lib/money.ts` (`formatMoney`, `toNumber`) evita concatenar strings al sumar.
 
-`DELETE /api/transactions/{id}` borra el registro. Para dinero conviene anulación con motivo (estado `VOIDED` + usuario + fecha), así el cierre de caja de días pasados no cambia sin rastro.
+### 2.5 Borrado físico de movimientos de caja - APLICADO
 
-### 2.6 Pagos que exceden la cuota - BAJA, PENDIENTE
+`DELETE /api/transactions/{id}` ya no existe. `POST /api/transactions/{id}/void` con `reason` (obligatorio) marca `estado = VOIDED` con usuario, fecha y motivo, y queda en la auditoría. Los anulados no suman en caja ni reportes, pero siguen en el listado (`includeVoided=false` para ocultarlos). En Caja, el botón pasa a "Anular" con un modal que pide el motivo; los anulados se ven tachados con su motivo.
 
-Se puede registrar un pago mayor al saldo o sobre una cuota ya `PAID`. Validar contra el saldo (o permitirlo explícitamente como "saldo a favor").
+### 2.6 Pagos que exceden la cuota - APLICADO
 
-### 2.7 Tests automatizados - ALTA, PENDIENTE
+`POST /api/payments` rechaza (400) un monto mayor al saldo o un pago sobre una cuota `PAID`/`CANCELLED`. El webhook de MP no se valida (registra lo que MP efectivamente cobró). La preferencia de MP del admin cobra el saldo, igual que la del portal. El "saldo a favor" queda fuera de alcance.
 
-No hay tests. La prueba de humo usada en esta revisión (login, CRUD, validaciones, pagos, portal del socio, QR, firma de MP) es una buena base para una suite `pytest` con base de test, más un job de CI (`pytest`, `npm run lint`, `npm run build`) que corra en cada push, antes del deploy.
+### 2.7 Tests automatizados - APLICADO
 
-### 2.8 Observabilidad - MEDIA, PENDIENTE
+- `apps/backend/tests/` (pytest + TestClient): auth y revocación, PIN del socio, alta online, credenciales de MP, webhook, CORS, headers, health, auditoría, uniques, zona horaria, decimales, anulación, saldo y listados. Usa `TEST_DATABASE_URL` (default `mysql://root@localhost:3306/clubes_test`; el nombre debe contener `test`) y la recrea en cada corrida.
+- `pip install -r requirements-dev.txt` y `pytest` desde `apps/backend`.
+- `.github/workflows/ci.yml`: en cada push y PR, backend (MariaDB 11 como servicio, `db_init` + `alembic check` + `pytest`) y frontend (`npm ci`, lint, `tsc`, build). El workflow de deploy lo llama antes de construir la imagen: si falla, no se deploya. OJO: no se pudo ejecutar localmente; validar en la primera corrida en GitHub.
 
-- `/health` no verifica la base: agregar un `SELECT 1` para que el healthcheck del compose y Nginx detecten una caída real.
-- Agregar `healthcheck` al servicio `app` en `docker-compose.prod.yml`.
-- Logging estructurado con request-id y Sentry (o GlitchTip self-hosted) para errores.
+### 2.8 Observabilidad - APLICADO
 
-### 2.9 Backups - ALTA, PENDIENTE
+- `/health` hace `SELECT 1` y responde 503 si la base no contesta.
+- `healthcheck` del servicio `app` en ambos compose (`docker compose ps` muestra `healthy`/`unhealthy`).
+- `observability.py`: request-id por request (respeta `X-Request-ID` entrante y lo devuelve), en todas las líneas de log, más una línea por request a `/api/*` con estado y duración.
+- Sentry o GlitchTip opcional con `SENTRY_DSN` (`sentry-sdk`, sin datos personales). Sin DSN no hace nada.
+- PENDIENTE (BAJA): que Nginx genere el `X-Request-ID` (`proxy_set_header X-Request-ID $request_id;`) para correlacionar con sus logs.
 
-No hay backup documentado de MariaDB ni de `recursos/`. Un `mariadb-dump` diario por cron con retención de 14 días y copia fuera del VPS (Backblaze B2, rclone) cubre el caso típico.
+### 2.9 Backups - APLICADO
+
+- `scripts/backup.sh`: `mariadb-dump --single-transaction` comprimido + `tar` de `recursos/`, retención de 14 días (`BACKUP_RETENTION_DAYS`) y copia opcional fuera del VPS con rclone (`BACKUP_RCLONE_REMOTE`). Lee `DATABASE_URL` del `.env` del club y pasa las credenciales en un archivo temporal, no en la línea de comandos.
+- El workflow de deploy copia el script al VPS. Falta programar el cron (una vez, ver deploy.md §5) y configurar el remoto de rclone.
+- Probado localmente: dump, tar, retención y restauración completa en una base nueva.
 
 ## 3. Rendimiento y velocidad
 
@@ -189,8 +219,8 @@ Producción corre `--workers 2` con el pool por defecto de SQLAlchemy (5 + 10 ov
 | Prioridad | Propuesta | Detalle |
 |---|---|---|
 | ALTA | Pantalla de configuración del club | `PATCH /api/club/config` existe pero no hay UI: hoy nombre, colores, cuota social y credenciales de MP solo se cambian por API. |
-| ALTA | Mercado Pago real en el portal del socio | El endpoint `/me/fees/{id}/mp-preference` ya existe; falta el botón "Pagar" y las páginas de retorno (`/member/payment/*` en `mp.member_back_urls` no existen en el frontend, deberían apuntar a `/socio/?status=...`). |
-| ALTA | Gestión de usuarios del staff | No hay ABM de usuarios ni cambio de contraseña: el único usuario es el del seed. |
+| ALTA | Mercado Pago real en el portal del socio | El endpoint `/me/fees/{id}/mp-preference` ya existe; falta el botón "Pagar" y mostrar el resultado en `/socio/?status=...` (las URLs de retorno ya apuntan ahí). |
+| ALTA | Gestión de usuarios del staff | No hay ABM de usuarios; el cambio de contraseña ya tiene endpoint (`POST /api/auth/change-password`) pero no pantalla. |
 | MEDIA | Asistencia: editar la del día | Al abrir "Tomar asistencia" para una fecha ya cargada, precargar los presentes/ausentes existentes (hoy arranca todo en "presente" y pisa lo guardado). |
 | MEDIA | Asistencia: elegir fecha en el listado | La pantalla solo muestra la asistencia de hoy. |
 | MEDIA | Morosidad | Vista de socios con cuotas vencidas (por `fecha_vencimiento`), con total adeudado y contacto rápido por WhatsApp. |
@@ -239,7 +269,7 @@ El carnet con QR es el caso de uso más frecuente del socio. Un `manifest.webman
 
 | Prioridad | Propuesta |
 |---|---|
-| ALTA | CI con tests y lint antes del build de la imagen (hoy el deploy es solo `workflow_dispatch` sin verificación). |
+| APLICADO | CI con tests y lint antes del build de la imagen (ver 2.7). |
 | MEDIA | Deploy por tag SHA en lugar de `:latest` (el workflow ya publica ambos): permite rollback con un `sed` y deja claro qué versión corre. |
 | MEDIA | Correr el contenedor con un usuario sin privilegios (`USER app` en el Dockerfile). |
 | MEDIA | `python:3.14-slim`: verificar compatibilidad de dependencias con Python 3.14 en local antes de cambiar la imagen. |

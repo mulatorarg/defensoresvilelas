@@ -4,11 +4,18 @@ from fastapi import APIRouter, Request
 from sqlalchemy import select
 
 from .. import models, mp, serializers
-from ..config import API_PUBLIC_URL, QR_EXPIRES_MINUTES, QR_SECRET
+from ..config import (
+    API_PUBLIC_URL,
+    PIN_LOCK_MINUTES,
+    PIN_MAX_ATTEMPTS,
+    QR_EXPIRES_MINUTES,
+    QR_SECRET,
+)
 from ..deps import DbDep, MemberDep
-from ..errors import not_found, unauthorized
-from ..schemas import LoginMemberDto
-from ..security import sign_token
+from ..errors import bad_request, not_found, too_many_requests, unauthorized
+from ..models import utcnow
+from ..schemas import ChangePinDto, LoginMemberDto
+from ..security import hash_password, sign_token, verify_password
 from ..utils import parse_date
 
 router = APIRouter(prefix="/api/member-portal", tags=["member-portal"])
@@ -21,25 +28,35 @@ def _notification_url(request: Request) -> str:
     return f"{base}/api/payments/mercado-pago/webhook"
 
 
-@router.post("/login", status_code=201)
-def login(dto: LoginMemberDto, db: DbDep):
-    birth = parse_date(dto.birthDate)
-    start = datetime(birth.year, birth.month, birth.day)
-    end = start + timedelta(days=1) - timedelta(milliseconds=1)
-
-    member = db.scalar(
-        select(models.Member).where(
-            models.Member.dni == dto.dni,
-            models.Member.birthDate >= start,
-            models.Member.birthDate <= end,
-            models.Member.status == "ACTIVE",
+def _check_pin(db, member: models.Member, pin: str | None, *, fail=unauthorized) -> None:
+    """Valida el PIN con bloqueo temporal tras PIN_MAX_ATTEMPTS fallos seguidos."""
+    now = utcnow()
+    if member.pinLockedUntil and member.pinLockedUntil > now:
+        raise too_many_requests(
+            f"Demasiados intentos. Probá de nuevo en {PIN_LOCK_MINUTES} minutos "
+            "o pedí en secretaría que blanqueen tu PIN."
         )
-    )
-    if not member:
-        raise unauthorized("Credenciales inválidas")
 
-    payload = {"sub": member.id, "memberId": member.id, "scope": "member"}
+    if pin and verify_password(pin, member.pinHash):
+        member.pinFailedAttempts = 0
+        member.pinLockedUntil = None
+        return
 
+    member.pinFailedAttempts = (member.pinFailedAttempts or 0) + 1
+    if member.pinFailedAttempts >= PIN_MAX_ATTEMPTS:
+        member.pinFailedAttempts = 0
+        member.pinLockedUntil = now + timedelta(minutes=PIN_LOCK_MINUTES)
+    db.commit()
+    raise fail("Credenciales inválidas")
+
+
+def _member_session(member: models.Member) -> dict:
+    payload = {
+        "sub": member.id,
+        "memberId": member.id,
+        "scope": "member",
+        "tv": member.tokenVersion or 0,
+    }
     return {
         "accessToken": sign_token(payload),
         "member": {
@@ -50,6 +67,56 @@ def login(dto: LoginMemberDto, db: DbDep):
             "dni": member.dni,
         },
     }
+
+
+@router.post("/login", status_code=201)
+def login(dto: LoginMemberDto, db: DbDep):
+    """DNI + fecha de nacimiento + PIN.
+
+    Si el socio todavía no tiene PIN, responde `{"pinSetupRequired": true}` sin
+    token; el frontend pide el PIN nuevo y repite el login con `newPin`.
+    """
+    birth = parse_date(dto.birthDate)
+    start = datetime(birth.year, birth.month, birth.day)
+    end = start + timedelta(days=1) - timedelta(milliseconds=1)
+
+    member = db.scalar(
+        select(models.Member).where(
+            models.Member.dni == dto.dni.strip(),
+            models.Member.birthDate >= start,
+            models.Member.birthDate <= end,
+            models.Member.status == "ACTIVE",
+        )
+    )
+    if not member:
+        raise unauthorized("Credenciales inválidas")
+
+    if member.pinHash:
+        _check_pin(db, member, dto.pin)
+    elif dto.newPin:
+        member.pinHash = hash_password(dto.newPin)
+        member.pinFailedAttempts = 0
+        member.pinLockedUntil = None
+    else:
+        return {"pinSetupRequired": True}
+
+    db.commit()
+    return _member_session(member)
+
+
+@router.post("/me/pin")
+def change_pin(dto: ChangePinDto, ctx: MemberDep, db: DbDep):
+    """Cambia el PIN propio y cierra las otras sesiones del socio."""
+    member = db.get(models.Member, ctx.member_id)
+    if not member.pinHash:
+        raise bad_request("Todavía no definiste un PIN")
+    # 400 y no 401: el frontend trata el 401 como sesión vencida
+    _check_pin(db, member, dto.currentPin, fail=lambda _msg: bad_request("El PIN actual no es correcto"))
+
+    member.pinHash = hash_password(dto.newPin)
+    member.tokenVersion = (member.tokenVersion or 0) + 1
+    db.commit()
+    return _member_session(member)
 
 
 @router.get("/me")

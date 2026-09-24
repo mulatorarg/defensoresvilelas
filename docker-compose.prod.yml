@@ -33,10 +33,32 @@ services:
       QR_SECRET: ${QR_SECRET:-}
       FRONTEND_URL: ${FRONTEND_URL:?Definir FRONTEND_URL en .env}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      # Clave Fernet para cifrar las credenciales de Mercado Pago en la base
+      # (opcional: sin ella se deriva de JWT_SECRET)
+      SECRETS_KEY: ${SECRETS_KEY:-}
+      MERCADO_PAGO_ACCESS_TOKEN: ${MERCADO_PAGO_ACCESS_TOKEN:-}
+      MERCADO_PAGO_WEBHOOK_SECRET: ${MERCADO_PAGO_WEBHOOK_SECRET:-}
+      # /api/docs apagado en producción (ENABLE_DOCS=1 en .env para prenderlo)
+      ENABLE_DOCS: ${ENABLE_DOCS:-0}
+      # Observabilidad: errores a Sentry/GlitchTip si hay DSN (ver observability.py)
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
       RECURSOS_DIR: /app/recursos
+      # Hora del club para "hoy", el mes y el cierre de caja (la base queda en UTC)
+      CLUB_TIMEZONE: ${CLUB_TIMEZONE:-America/Argentina/Buenos_Aires}
       CLUB_NAME: ${CLUB_NAME:-Mi Club}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@clubes.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Definir ADMIN_PASSWORD en .env}
+    # /health verifica también la base: si MariaDB se cae, el contenedor queda "unhealthy"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3001/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    # db_init corre las migraciones de Alembic (alembic upgrade head) antes de levantar
     command: >
       sh -c "python -m app.db_init && python -m app.seed &&
              uvicorn app.main:app --host 0.0.0.0 --port 3001 --workers 2"

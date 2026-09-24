@@ -12,10 +12,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
-from .config import FRONTEND_DIST_PATH, FRONTEND_URL, RECURSOS_DIR
+from .config import ENABLE_DOCS, FRONTEND_DIST_PATH, FRONTEND_URL, RECURSOS_DIR
+from .database import engine
+from .observability import logger, request_context, setup_logging, setup_sentry
 from .routers import (
     attendances,
+    audit_log,
     auth,
     categories,
     disciplines,
@@ -32,15 +36,67 @@ from .routers import (
     transactions,
 )
 
-app = FastAPI(title="Clubes SaaS API", docs_url="/api/docs", openapi_url="/api/openapi.json")
+setup_logging()
+setup_sentry()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[FRONTEND_URL] if FRONTEND_URL else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="Clubes SaaS API",
+    docs_url="/api/docs" if ENABLE_DOCS else None,
+    redoc_url=None,
+    openapi_url="/api/openapi.json" if ENABLE_DOCS else None,
 )
+
+# En producción la web y la API comparten origen y CORS no hace falta. Solo se
+# habilita para el origen de FRONTEND_URL (p. ej. next dev en :3000); sin la
+# variable no se permite ningún origen cruzado. La auth va por header Bearer,
+# no por cookies: allow_credentials no es necesario.
+if FRONTEND_URL:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[FRONTEND_URL.rstrip("/")],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# CSP: Next (export estático) emite scripts y estilos inline, de ahí 'unsafe-inline'.
+# Igual limita el daño de un XSS: no se pueden cargar scripts externos, ni enviar
+# datos a otros dominios (connect-src/form-action), ni embeber el sitio en iframes.
+# img-src admite https: porque logos y fotos pueden ser URLs externas.
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+])
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    headers = response.headers
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("X-Frame-Options", "DENY")
+    headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+    # Swagger UI carga JS/CSS de un CDN: sin CSP en la documentación
+    if not request.url.path.startswith("/api/docs"):
+        headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    # HSTS solo detrás de HTTPS (Nginx con certbot manda X-Forwarded-Proto)
+    if request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https":
+        headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+# Registrado después que security_headers: es el middleware más externo, así el
+# request-id cubre también las respuestas de los demás
+app.middleware("http")(request_context)
 
 
 @app.exception_handler(HTTPException)
@@ -77,14 +133,23 @@ async def invalid_decimal_handler(_request: Request, _exc: InvalidOperation):
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
+    """Healthcheck del compose y de monitoreo externo: verifica también la base."""
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.error("Healthcheck: la base no responde (%s)", exc.__class__.__name__)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "database": "down", "timestamp": timestamp},
+        )
+    return {"status": "ok", "database": "ok", "timestamp": timestamp}
 
 
 for module in (
     auth,
+    audit_log,
     club,
     members,
     disciplines,

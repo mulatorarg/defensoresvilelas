@@ -34,7 +34,7 @@ const formatMoney = (value: number) =>
   });
 
 export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
-  const [step, setStep] = useState<'form' | 'paying' | 'done'>('form');
+  const [step, setStep] = useState<'form' | 'sending' | 'done'>('form');
   const [error, setError] = useState('');
   const [result, setResult] = useState<{
     member: { memberNumber: string; firstName: string };
@@ -49,6 +49,8 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
     email: '',
     phone: '',
     categoryId: '',
+    // Honeypot anti-bots: el input está oculto, una persona nunca lo completa
+    website: '',
   });
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -65,10 +67,7 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setStep('paying');
-
-    // Simulación de checkout (Mercado Pago se integra más adelante)
-    await new Promise((r) => setTimeout(r, 1800));
+    setStep('sending');
 
     try {
       const data = await registerPublicMember({
@@ -79,6 +78,7 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
         email: form.email || undefined,
         phone: form.phone || undefined,
         categoryId: form.categoryId || undefined,
+        website: form.website || undefined,
       });
       setResult(data);
       setStep('done');
@@ -105,11 +105,12 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
           {result.member.memberNumber}
         </p>
         <p className="mx-auto mt-5 max-w-sm text-[13px] leading-relaxed text-white/50">
-          Tu cuota {result.fee.period} ya está paga ✔. Ingresá al{' '}
+          Tu cuota {result.fee.period} quedó pendiente de pago: podés abonarla en
+          secretaría. Ingresá al{' '}
           <a href="/socio/" className="font-semibold text-primary hover:underline">
             portal del socio
           </a>{' '}
-          con tu DNI y fecha de nacimiento para ver tu carnet digital con QR.
+          con tu DNI y fecha de nacimiento, y creá tu PIN para ver tu carnet digital con QR.
         </p>
         <a
           href="/socio/"
@@ -132,7 +133,7 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
     >
       <h3 className="font-display text-xl font-bold">Asociate ahora</h3>
       <p className="mt-1 text-[13px] text-white/45">
-        Completá tus datos y pagá tu primera cuota online.
+        Completá tus datos y abonás la primera cuota en secretaría.
       </p>
 
       {error && (
@@ -162,6 +163,17 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
         <input placeholder="Teléfono (opcional)" value={form.phone} onChange={set('phone')} className={inputClass} />
       </div>
 
+      <input
+        type="text"
+        name="website"
+        value={form.website}
+        onChange={set('website')}
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        className="absolute -left-[9999px] h-0 w-0 opacity-0"
+      />
+
       <select
         value={form.categoryId}
         onChange={set('categoryId')}
@@ -188,17 +200,17 @@ export default function RegistroSocio({ disciplines, monthlyFee }: Props) {
 
       <button
         type="submit"
-        disabled={step === 'paying'}
+        disabled={step === 'sending'}
         className="mt-5 w-full rounded-full py-3.5 text-sm font-bold text-white shadow-[0_12px_45px_-10px_var(--color-primary)] transition-all hover:scale-[1.02] disabled:cursor-wait disabled:opacity-70"
         style={{
           backgroundImage:
             'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
         }}
       >
-        {step === 'paying' ? 'Procesando pago…' : 'Pagar cuota y asociarme'}
+        {step === 'sending' ? 'Enviando…' : 'Asociarme'}
       </button>
       <p className="mt-3 text-center text-[11px] text-white/30">
-        Pago de demostración — próximamente Mercado Pago.
+        Próximamente vas a poder pagar online con Mercado Pago.
       </p>
     </form>
   );

@@ -18,6 +18,10 @@ engine = create_engine(
     _to_sqlalchemy_url(DATABASE_URL),
     pool_pre_ping=True,
     pool_recycle=280,
+    # Sesión en UTC al abrir cada conexión (no por request): NOW(), CURRENT_TIMESTAMP
+    # y las consultas manuales dan lo mismo que la app, sin importar la zona
+    # configurada en el MariaDB del VPS. Ver clock.py.
+    connect_args={"init_command": "SET time_zone = '+00:00'"},
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import models
+from . import crypto, models
 from .config import (
     FRONTEND_URL,
     MERCADO_PAGO_ACCESS_TOKEN,
@@ -23,18 +23,18 @@ except ImportError:  # pragma: no cover
     mercadopago = None
 
 
-def _access_token(db: Session) -> str | None:
+def access_token(db: Session) -> str | None:
     config = db.get(models.ClubConfig, "club")
-    return (config.mpAccessToken if config else None) or MERCADO_PAGO_ACCESS_TOKEN
+    return (crypto.decrypt(config.mpAccessToken) if config else None) or MERCADO_PAGO_ACCESS_TOKEN
 
 
 def webhook_secret(db: Session) -> str | None:
     config = db.get(models.ClubConfig, "club")
-    return (config.mpWebhookSecret if config else None) or MERCADO_PAGO_WEBHOOK_SECRET
+    return (crypto.decrypt(config.mpWebhookSecret) if config else None) or MERCADO_PAGO_WEBHOOK_SECRET
 
 
 def _sdk(db: Session):
-    token = _access_token(db)
+    token = access_token(db)
     if not mercadopago or not token:
         # 400 con mensaje claro en lugar de un 500 genérico
         raise bad_request("Mercado Pago no está configurado para este club.")
@@ -97,9 +97,9 @@ def admin_back_urls() -> dict[str, str]:
 def member_back_urls() -> dict[str, str]:
     base = FRONTEND_URL or ""
     return {
-        "success": f"{base}/member/payment/success",
-        "failure": f"{base}/member/payment/failure",
-        "pending": f"{base}/member/payment/pending",
+        "success": f"{base}/socio/?status=success",
+        "failure": f"{base}/socio/?status=failure",
+        "pending": f"{base}/socio/?status=pending",
     }
 
 

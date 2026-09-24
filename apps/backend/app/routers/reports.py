@@ -1,36 +1,59 @@
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 
-from .. import models, serializers
+from .. import clock, models, serializers
 from ..deps import DbDep, StaffContext, require_roles
-from ..models import utcnow
 from .fees import FEE_LOAD_OPTIONS
 from .members import MEMBER_LOAD_OPTIONS
-from ..utils import parse_date, parse_datetime
+from ..utils import parse_date
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 Roles = Depends(require_roles("ADMIN", "OPERATOR"))
 
+# Los movimientos anulados quedan en la base pero no suman en ningún total
+ACTIVE_TX = models.Transaction.status == "ACTIVE"
 
-def _num(value) -> float:
-    return float(value or 0)
+
+def _money(value) -> str:
+    """Montos como string decimal (mismo contrato que el resto de la API)."""
+    return serializers.dec(value or Decimal("0"))
+
+
+def _sum_transactions(db, type_: str, frm: date, until: date) -> Decimal:
+    """Suma de movimientos activos de un tipo con fecha en [frm, until)."""
+    return db.scalar(
+        select(func.sum(models.Transaction.amount)).where(
+            ACTIVE_TX,
+            models.Transaction.type == type_,
+            models.Transaction.date >= frm,
+            models.Transaction.date < until,
+        )
+    ) or Decimal("0")
+
+
+def _sum_payments(db, frm_day: date, until_day: date) -> Decimal:
+    """Pagos completados entre dos días locales del club [frm, until)."""
+    start, _ = clock.day_bounds_utc(frm_day)
+    end, _ = clock.day_bounds_utc(until_day)
+    return db.scalar(
+        select(func.sum(models.Payment.amount)).where(
+            models.Payment.status == "COMPLETED",
+            models.Payment.paidAt >= start,
+            models.Payment.paidAt < end,
+        )
+    ) or Decimal("0")
 
 
 @router.get("/dashboard")
 def dashboard(db: DbDep, ctx: StaffContext = Roles):
-    # Las fechas se guardan en UTC (models.utcnow): el mes se calcula igual
-    now = utcnow()
-    first_day = datetime(now.year, now.month, 1)
-    if now.month == 12:
-        last_day = datetime(now.year, 12, 31, 23, 59, 59)
-    else:
-        last_day = datetime(now.year, now.month + 1, 1) - timedelta(seconds=1)
-
-    period = f"{now.year}-{now.month:02d}"
+    # Mes corriente en la zona horaria del club (ver clock.py)
+    today = clock.local_today()
+    first_day, next_month = clock.month_bounds(today.year, today.month)
+    period = f"{today.year}-{today.month:02d}"
 
     active_members = db.scalar(
         select(func.count()).select_from(models.Member).where(models.Member.status == "ACTIVE")
@@ -39,35 +62,19 @@ def dashboard(db: DbDep, ctx: StaffContext = Roles):
     fees_this_month = db.scalar(
         select(func.count()).select_from(models.Fee).where(models.Fee.period == period)
     )
-    collected = db.scalar(
-        select(func.sum(models.Payment.amount)).where(
-            models.Payment.status == "COMPLETED",
-            models.Payment.paidAt >= first_day,
-            models.Payment.paidAt <= last_day,
-        )
-    )
-    income = db.scalar(
-        select(func.sum(models.Transaction.amount)).where(
-            models.Transaction.type == "INCOME",
-            models.Transaction.date >= first_day.date(),
-            models.Transaction.date <= last_day.date(),
-        )
-    )
-    expense = db.scalar(
-        select(func.sum(models.Transaction.amount)).where(
-            models.Transaction.type == "EXPENSE",
-            models.Transaction.date >= first_day.date(),
-            models.Transaction.date <= last_day.date(),
-        )
-    )
+    collected = _sum_payments(db, first_day, next_month)
+    income = _sum_transactions(db, "INCOME", first_day, next_month)
+    expense = _sum_transactions(db, "EXPENSE", first_day, next_month)
 
     return {
+        "period": period,
         "activeMembers": active_members,
         "totalMembers": total_members,
         "feesThisMonth": fees_this_month,
-        "collectedThisMonth": _num(collected),
-        "incomeThisMonth": _num(income),
-        "expenseThisMonth": _num(expense),
+        "collectedThisMonth": _money(collected),
+        "incomeThisMonth": _money(income),
+        "expenseThisMonth": _money(expense),
+        "balanceThisMonth": _money(collected + income - expense),
     }
 
 
@@ -137,9 +144,9 @@ def fees_report(
         "items": [serializers.fee_list_item(f) for f in items],
         "total": len(items),
         "summary": {
-            "totalAmount": float(total_amount),
-            "totalPaid": float(total_paid),
-            "totalPending": float(total_amount - total_paid),
+            "totalAmount": _money(total_amount),
+            "totalPaid": _money(total_paid),
+            "totalPending": _money(total_amount - total_paid),
         },
     }
 
@@ -151,11 +158,11 @@ def income_expense(
     frm: str | None = Query(default=None, alias="from"),
     to: str | None = None,
 ):
-    query = select(models.Transaction)
+    query = select(models.Transaction).where(ACTIVE_TX)
     if frm:
-        query = query.where(models.Transaction.date >= parse_datetime(frm).date())
+        query = query.where(models.Transaction.date >= parse_date(frm))
     if to:
-        query = query.where(models.Transaction.date <= parse_datetime(to).date())
+        query = query.where(models.Transaction.date <= parse_date(to))
 
     items = db.scalars(query.order_by(models.Transaction.date.desc())).all()
 
@@ -165,48 +172,32 @@ def income_expense(
     return {
         "items": [serializers.transaction(t) for t in items],
         "summary": {
-            "income": float(income),
-            "expense": float(expense),
-            "balance": float(income - expense),
+            "income": _money(income),
+            "expense": _money(expense),
+            "balance": _money(income - expense),
         },
     }
 
 
 @router.get("/cash-closure")
 def cash_closure(db: DbDep, date_str: str = Query(alias="date"), ctx: StaffContext = Roles):
+    """Cierre de caja de un día local del club (los pagos se filtran por su hora UTC)."""
     day: date = parse_date(date_str)
     next_day = day + timedelta(days=1)
 
-    tx_income = db.scalar(
-        select(func.sum(models.Transaction.amount)).where(
-            models.Transaction.type == "INCOME",
-            models.Transaction.date >= day,
-            models.Transaction.date < next_day,
-        )
-    ) or Decimal("0")
-    tx_expense = db.scalar(
-        select(func.sum(models.Transaction.amount)).where(
-            models.Transaction.type == "EXPENSE",
-            models.Transaction.date >= day,
-            models.Transaction.date < next_day,
-        )
-    ) or Decimal("0")
-    payments_income = db.scalar(
-        select(func.sum(models.Payment.amount)).where(
-            models.Payment.status == "COMPLETED",
-            models.Payment.paidAt >= datetime(day.year, day.month, day.day),
-            models.Payment.paidAt < datetime(next_day.year, next_day.month, next_day.day),
-        )
-    ) or Decimal("0")
+    tx_income = _sum_transactions(db, "INCOME", day, next_day)
+    tx_expense = _sum_transactions(db, "EXPENSE", day, next_day)
+    payments_income = _sum_payments(db, day, next_day)
 
     total_income = tx_income + payments_income
     total_expense = tx_expense
 
     return {
-        "transactionsIncome": float(tx_income),
-        "transactionsExpense": float(tx_expense),
-        "paymentsIncome": float(payments_income),
-        "totalIncome": float(total_income),
-        "totalExpense": float(total_expense),
-        "balance": float(total_income - total_expense),
+        "date": day.isoformat(),
+        "transactionsIncome": _money(tx_income),
+        "transactionsExpense": _money(tx_expense),
+        "paymentsIncome": _money(payments_income),
+        "totalIncome": _money(total_income),
+        "totalExpense": _money(total_expense),
+        "balance": _money(total_income - total_expense),
     }

@@ -7,20 +7,12 @@ import {
   getFeesReport,
   getIncomeExpenseReport,
 } from '@/lib/api';
-import { Member, Fee, Transaction } from '@/lib/types';
+import { Member, Fee, Transaction, DashboardSummary as Summary } from '@/lib/types';
+import { formatMoney, toNumber } from '@/lib/money';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { formatDateOnly } from '@/lib/dates';
-
-interface Summary {
-  activeMembers: number;
-  totalMembers: number;
-  feesThisMonth: number;
-  collectedThisMonth: number;
-  incomeThisMonth: number;
-  expenseThisMonth: number;
-}
 
 const statusOptions = [
   { value: '', label: 'Todos' },
@@ -39,10 +31,10 @@ const feeStatusOptions = [
 export default function ReportesPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const [fees, setFees] = useState<{ items: Fee[]; summary: Record<string, number> } | null>(null);
+  const [fees, setFees] = useState<{ items: Fee[]; summary: Record<string, string> } | null>(null);
   const [incomeExpense, setIncomeExpense] = useState<{
     items: Transaction[];
-    summary: Record<string, number>;
+    summary: Record<string, string>;
   } | null>(null);
 
   const [memberStatus, setMemberStatus] = useState('');
@@ -95,9 +87,6 @@ export default function ReportesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const formatMoney = (value: number) =>
-    value?.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) ?? '$ 0,00';
-
   return (
     <div className="space-y-8">
       <h1 className="font-display text-2xl font-bold text-gray-900 md:text-3xl">Reportes</h1>
@@ -122,7 +111,7 @@ export default function ReportesPage() {
             <p className="text-sm text-gray-500">Balance</p>
             <p className="text-3xl font-bold mt-2">
               {formatMoney(
-                (summary?.incomeThisMonth ?? 0) - (summary?.expenseThisMonth ?? 0),
+                toNumber(summary?.incomeThisMonth) - toNumber(summary?.expenseThisMonth),
               )}
             </p>
           </div>
@@ -284,7 +273,7 @@ export default function ReportesPage() {
               {incomeExpense?.items.map((t) => (
                 <tr key={t.id}>
                   <td className="px-4 py-2 text-sm">
-                    {formatDateOnly(t.date ?? t.createdAt)}
+                    {formatDateOnly(t.date)}
                   </td>
                   <td className="px-4 py-2 text-sm">
                     <span

@@ -1,4 +1,4 @@
-# Deploy: build de la imagen -> push a GHCR -> deploy al VPS por SSH.
+# Deploy: CI (tests + lint + build) -> build de la imagen -> push a GHCR -> deploy al VPS por SSH.
 #
 # Secrets requeridos en el repo (Settings -> Secrets and variables -> Actions):
 #   VPS_HOST             IP o dominio del VPS
@@ -19,8 +19,13 @@ env:
   DEPLOY_PATH: /home/${{ secrets.VPS_USER }}/defensores
 
 jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build & push a GHCR
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,14 +71,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Copiar docker-compose.yml al VPS
+      - name: Copiar docker-compose.yml y el script de backup al VPS
         uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           port: ${{ secrets.VPS_PORT }}
           key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-          source: docker-compose.prod.yml
+          source: docker-compose.prod.yml,scripts/backup.sh
           target: ${{ env.DEPLOY_PATH }}
 
       - name: Levantar la nueva versión
@@ -93,6 +98,7 @@ jobs:
             IMAGE=$(echo "ghcr.io/${{ github.repository }}:latest" | tr '[:upper:]' '[:lower:]')
             sed -i "s|__IMAGE__|$IMAGE|g" docker-compose.prod.yml
             mv -f docker-compose.prod.yml docker-compose.yml
+            chmod +x scripts/backup.sh
             mkdir -p recursos
 
             if [ ! -f .env ]; then

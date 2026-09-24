@@ -27,11 +27,13 @@ npm run lint         # next lint
 ```bash
 python -m venv .venv
 .venv\Scripts\activate               # Windows
-pip install -r requirements.txt
+pip install -r requirements-dev.txt         # requirements.txt + pytest
 
 uvicorn app.main:app --reload --port 3001   # dev server
-python -m app.db_init                       # create DB + all tables (additive)
-python -m app.db_init --reset               # drop ALL tables & recreate
+python -m app.db_init                       # create DB + alembic upgrade head
+python -m app.db_init --reset               # drop ALL tables & migrate from scratch
+alembic revision --autogenerate -m "..."    # new migration after changing models.py
+pytest                                      # tests (TEST_DATABASE_URL, default mysql://root@localhost:3306/clubes_test)
 python -m app.seed                          # club config + admin user (env: CLUB_NAME, ADMIN_EMAIL, ADMIN_PASSWORD)
 python -m app.seed --demo                   # + demo disciplines/news/events
 ```
@@ -54,13 +56,13 @@ docker compose up --build   # MariaDB (host port 3307) + app on http://localhost
 
 - Staff endpoints use `Depends(require_roles("ADMIN", ...))` → `StaffContext` (JWT payload + `role` claim).
 - Member-portal endpoints use `MemberDep` (JWT with `scope: 'member'`).
-- Public endpoints (login, /api/club, /api/public/*, MP webhook) skip auth deps. `POST /api/public/register` is the online member sign-up: creates member + optional enrollment + current-month fee + simulated COMPLETED payment (reference `simulacion-web`; real MP checkout pending).
+- Public endpoints (login, /api/club, /api/public/*, MP webhook) skip auth deps. `POST /api/public/register` is the online member sign-up: creates member + optional enrollment + current-month fee left PENDING (no payment is ever recorded there; paid at the office until the real MP checkout exists). Has a honeypot field (`website`) and an Nginx rate limit.
 
 ### Authentication
 
 Two separate flows:
-1. **Staff login** (`POST /api/auth/login`) — email + password (bcrypt) → JWT (HS256, 7d) with a `role` claim (`ADMIN`, `OPERATOR`, `TEACHER`, `STAFF`). Role lives directly on the `usuarios` table.
-2. **Member login** (`POST /api/member-portal/login`) — DNI + birth date → JWT with `scope: 'member'`. Member card QR is a short-lived JWT (5 min) signed with `QR_SECRET`, scope `member-qr`, validated by `POST /api/staff-portal/scan`.
+1. **Staff login** (`POST /api/auth/login`) - email + password (bcrypt) → JWT (HS256, 7d) with `role` and `tv` (token version) claims (`ADMIN`, `OPERATOR`, `TEACHER`, `STAFF`). Role lives directly on the `usuarios` table. Every staff request re-reads the user by PK: inactive users, role changes and a bumped `version_token` take effect immediately. `POST /api/auth/logout-all` and `POST /api/auth/change-password` bump the version.
+2. **Member login** (`POST /api/member-portal/login`) - DNI + birth date + PIN (4-6 digits, bcrypt in `socios.hash_pin`) → JWT with `scope: 'member'` and `tv`. A member without PIN gets `{pinSetupRequired: true}` and must repeat the login with `newPin`. 5 failed PINs lock for 15 min. Staff resets it with `POST /api/members/{id}/reset-pin`; the member changes it with `POST /api/member-portal/me/pin`. Member card QR is a short-lived JWT (5 min) signed with `QR_SECRET`, scope `member-qr`, validated by `POST /api/staff-portal/scan`.
 
 `JWT_SECRET` must be ≥ 32 characters; the app raises on startup otherwise.
 
@@ -76,10 +78,15 @@ Two separate flows:
 | `serializers.py` | Response dicts — camelCase keys, ISO `...Z` dates, decimals as strings (same JSON contract the frontend expects) |
 | `deps.py` | Auth/roles dependencies + `get_club_config` |
 | `security.py` | PyJWT sign/verify, bcrypt |
+| `crypto.py` | Fernet encryption at rest for MP credentials (`SECRETS_KEY`, fallback derived from `JWT_SECRET`); `GET /api/club/config` returns them masked |
+| `audit.py` | `audit(db, ctx, action, entity, id, detail)` → `auditoria` table; listed by `GET /api/audit` (ADMIN) |
+| `clock.py` | Club-timezone helpers: `local_today`, `current_period`, `day_bounds_utc`, `local_date_to_utc` |
+| `migrate.py` / `migrations/` | Alembic config by code + migration scripts (CLI uses `apps/backend/alembic.ini`) |
+| `observability.py` | Request-id middleware + logging format, optional Sentry (`SENTRY_DSN`) |
 | `mp.py` | Mercado Pago SDK (lazy — API works without `MERCADO_PAGO_ACCESS_TOKEN`), fee status recalculation |
 | `errors.py` | HTTPException helpers with `{statusCode, message, error}` body |
 | `db_init.py` / `seed.py` | Schema creation / demo data (run with `python -m app.db_init` / `python -m app.seed`) |
-| `routers/` | One module per resource: auth, club, members, disciplines, categories, enrollments, attendances, fee_types, fees, payments, transactions, reports, member_portal, staff_portal |
+| `routers/` | One module per resource: auth, club, members, disciplines, categories, enrollments, attendances, fee_types, fees, payments, transactions, reports, member_portal, staff_portal, public, audit_log |
 
 ### Frontend (`apps/frontend/app/`)
 
@@ -97,14 +104,16 @@ Next.js App Router with static export (`output: 'export'`, `distDir: 'dist'`). T
 
 Schema is owned by SQLAlchemy models (`app/models.py`). Table/column names are Spanish; Python attribute names are English. Key mappings:
 
-- Tables: `ClubConfig→configuracion_club` (single row, id='club'), `Member→socios`, `User→usuarios`, `Discipline→disciplinas`, `Category→categorias`, `Enrollment→inscripciones`, `FeeType→tipos_cuota`, `Fee→cuotas`, `Payment→pagos`, `Attendance→asistencias`, `Transaction→transacciones`, `News→noticias`, `Event→eventos`, `Team→equipos`, `Match→partidos`
+- Tables: `ClubConfig→configuracion_club` (single row, id='club'), `Member→socios`, `User→usuarios`, `Discipline→disciplinas`, `Category→categorias`, `Enrollment→inscripciones`, `FeeType→tipos_cuota`, `Fee→cuotas`, `Payment→pagos`, `Attendance→asistencias`, `Transaction→transacciones`, `News→noticias`, `Event→eventos`, `Team→equipos`, `Match→partidos`, `AuditLog→auditoria`
 - Common columns: `createdAt→creado_en`, `updatedAt→actualizado_en`, `isActive→activo`, `firstName→nombre`, `lastName→apellido`
 
 Key uniques: `Member.dni`, `Member.numero_socio`, `News.slug`, `Enrollment [socio_id, categoria_id, estado]`, `Attendance [categoria_id, socio_id, fecha]`.
 
 IDs are cuid-style strings generated in Python (`app/ids.py`). Enums are stored as plain strings (`ACTIVE`, `PENDING`, `MERCADO_PAGO`, ...). `DATABASE_URL` format: `mysql://user:password@host:3306/database`.
 
-After changing `models.py` on a dev DB, re-run `python -m app.db_init` (additive) or `--reset` (destructive).
+Schema changes go through Alembic (`app/migrations/versions/`): after changing `models.py`, run `alembic revision --autogenerate -m "..."` from `apps/backend`, review the file and commit it. `python -m app.db_init` runs `alembic upgrade head` and runs on every container start, so migrations deploy by themselves. `0001` also adopts databases created before Alembic with `create_all`. MariaDB DDL is not transactional: write migration steps so they can be re-run (check before adding, see `0002`). CI runs `alembic check` and fails if models and migrations diverge.
+
+Uniques over nullable columns use STORED generated columns (`pagos.referencia_mp`, `cuotas.tipo_clave`/`categoria_clave`, `inscripciones.activa`) because MariaDB does not treat NULLs as equal. Cash transactions are never deleted: `POST /api/transactions/{id}/void` (status `VOIDED`, excluded from totals). Report and dashboard amounts are decimal strings. Dates: the DB stores UTC naive only (MariaDB session forced to `+00:00` in `database.py`, container `TZ=UTC`); never use `datetime.now()`/`date.today()` without tz. Day/month cutoffs use `CLUB_TIMEZONE` (env, default America/Argentina/Buenos_Aires, helpers in `app/clock.py`); a date-only `paidAt` means a local day. The frontend always renders in that timezone via `lib/dates.ts` (never `toLocale*`/`getDate()` without `timeZone`).
 
 ### Production deployment (VPS Debian, Nginx + MariaDB at OS level)
 
@@ -116,7 +125,9 @@ Full instructions in `deploy.md` (root): GHCR image + Docker Compose per club (r
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` (root). Required: `DATABASE_URL`, `JWT_SECRET` (≥32 chars), `NEXT_PUBLIC_API_URL`, `FRONTEND_URL` (CORS). Optional: `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET`, `QR_SECRET`.
+Copy `.env.example` to `.env` (root). Required: `DATABASE_URL`, `JWT_SECRET` (≥32 chars), `NEXT_PUBLIC_API_URL`, `FRONTEND_URL` (CORS). Optional: `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET`, `QR_SECRET`, `SECRETS_KEY` (Fernet key for MP credentials in DB), `ENABLE_DOCS` (default 1; prod compose sets 0), `SENTRY_DSN`, `APP_ENV`, `LOG_LEVEL`, `CLUB_TIMEZONE`. Backups: `scripts/backup.sh` (reads the club `.env`; `BACKUP_DIR`, `BACKUP_RETENTION_DAYS`, `BACKUP_RCLONE_REMOTE`).
+
+Security headers (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS behind HTTPS) are set by `main.py`, not Nginx. CORS is only enabled for `FRONTEND_URL`. The MP webhook rejects everything unless a webhook secret is configured.
 
 ## Demo Credentials
 

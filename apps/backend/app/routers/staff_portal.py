@@ -65,7 +65,8 @@ def register_attendance(dto: RegisterAttendanceDto, db: DbDep, ctx: StaffContext
         raise not_found("El socio no está inscripto en esta categoría")
 
     attendance = upsert_attendance(
-        db, dto.categoryId, dto.memberId, parse_date(dto.date), True, dto.notes
+        db, dto.categoryId, dto.memberId, parse_date(dto.date), True, dto.notes,
+        ctx.user.get("sub"),
     )
     db.commit()
     db.refresh(attendance)

@@ -56,20 +56,20 @@ O todo junto con Docker: `docker compose up --build` → http://localhost:3001.
 | Ruta | Qué es |
 |---|---|
 | `/` | Landing pública del club (branding dinámico desde la API) |
-| `/#asociate` | Registro online de socios con pago de la primera cuota |
-| `/socio` | Portal del socio: login DNI + fecha de nacimiento, cuotas, carnet QR |
+| `/#asociate` | Registro online de socios (la primera cuota queda pendiente) |
+| `/socio` | Portal del socio: login DNI + fecha de nacimiento + PIN, cuotas, carnet QR |
 | `/login` → `/admin` | Panel de administración (staff) |
-| `/api/docs` | Documentación interactiva de la API (OpenAPI) |
+| `/api/docs` | Documentación interactiva de la API (OpenAPI; apagada en producción con `ENABLE_DOCS=0`) |
 | `/recursos/*` | Archivos del club (fotos de socios, etc.) |
 
-Credenciales demo: `admin@clubes.local / admin123` · Socio demo: DNI `30111222`, nac. `1990-03-01`.
+Credenciales demo: `admin@clubes.local / admin123` · Socio demo: DNI `30111222`, nac. `1990-03-01` (en el primer ingreso pide crear un PIN).
 
 ## API para terceros (web + futura app móvil)
 
 La API es independiente del frontend: cualquier cliente puede consumirla.
 
 - **Staff:** `POST /api/auth/login` → JWT con claim `role` → `Authorization: Bearer <token>`
-- **Socios:** `POST /api/member-portal/login` (DNI + fecha de nacimiento) → JWT `scope: member`
+- **Socios:** `POST /api/member-portal/login` (DNI + fecha de nacimiento + PIN) → JWT `scope: member`. Sin PIN responde `pinSetupRequired` y se repite con `newPin`.
 - **Público:** `/api/club`, `/api/public/*` (disciplinas, noticias, eventos, registro)
 
 Contrato completo en `/api/docs`.

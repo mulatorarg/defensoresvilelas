@@ -5,6 +5,7 @@ import { Category, Discipline, FeeType } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { currentPeriod } from '@/lib/dates';
 
 interface FeeGeneratorProps {
   feeTypes: FeeType[];
@@ -21,8 +22,7 @@ export function FeeGenerator({
   onCancel,
   isLoading,
 }: FeeGeneratorProps) {
-  const today = new Date();
-  const defaultPeriod = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const defaultPeriod = currentPeriod();
 
   const [form, setForm] = useState({
     period: defaultPeriod,

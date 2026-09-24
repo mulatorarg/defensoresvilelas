@@ -7,7 +7,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from . import models
+from . import crypto, models
+from .config import CLUB_TIMEZONE
 
 
 def iso(dt: datetime | None) -> str | None:
@@ -53,6 +54,7 @@ def club_public(c: models.ClubConfig) -> dict:
         "facebook": c.facebook,
         "website": c.website,
         "monthlyFee": dec(c.monthlyFee),
+        "timezone": CLUB_TIMEZONE,
         "settings": parse_json(c.settings),
     }
 
@@ -61,8 +63,9 @@ def club_config_full(c: models.ClubConfig) -> dict:
     """Configuración completa para el admin (incluye credenciales MP)."""
     data = club_public(c)
     data["document"] = c.document
-    data["mpAccessToken"] = c.mpAccessToken
-    data["mpWebhookSecret"] = c.mpWebhookSecret
+    # Enmascarados: el valor completo solo se acepta al escribir
+    data["mpAccessToken"] = crypto.mask(crypto.decrypt(c.mpAccessToken))
+    data["mpWebhookSecret"] = crypto.mask(crypto.decrypt(c.mpWebhookSecret))
     data["updatedAt"] = iso(c.updatedAt)
     return data
 
@@ -154,6 +157,7 @@ def member_full(m: models.Member) -> dict:
         "photoUrl": m.photoUrl,
         "status": m.status,
         "notes": m.notes,
+        "hasPin": bool(m.pinHash),
         "createdAt": iso(m.createdAt),
         "updatedAt": iso(m.updatedAt),
         "player": player_profile(m.player),
@@ -274,6 +278,10 @@ def transaction(t: models.Transaction) -> dict:
         "amount": dec(t.amount),
         "description": t.description,
         "date": iso_date(t.date),
+        "status": t.status,
+        "voidedAt": iso(t.voidedAt),
+        "voidedBy": t.voidedBy,
+        "voidReason": t.voidReason,
         "createdBy": t.createdBy,
         "createdAt": iso(t.createdAt),
         "updatedAt": iso(t.updatedAt),

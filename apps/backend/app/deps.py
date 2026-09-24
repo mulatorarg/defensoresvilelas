@@ -54,11 +54,17 @@ class StaffContext:
     role: str
 
 
-def get_staff_context(payload: JwtPayloadDep) -> StaffContext:
-    role = payload.get("role")
-    if payload.get("scope") == "member" or not role:
+def get_staff_context(payload: JwtPayloadDep, db: DbDep) -> StaffContext:
+    if payload.get("scope") == "member" or not payload.get("role"):
         raise forbidden("Usuario no autenticado.")
-    return StaffContext(user=payload, role=role)
+
+    # Se valida contra la base en cada request (una consulta por PK): un usuario
+    # desactivado, con otro rol o con sesiones cerradas deja de operar al instante
+    user = db.get(models.User, payload.get("sub"))
+    if not user or not user.isActive or payload.get("tv", 0) != (user.tokenVersion or 0):
+        raise unauthorized("Sesión inválida o revocada")
+
+    return StaffContext(user={**payload, "role": user.role}, role=user.role)
 
 
 StaffDep = Annotated[StaffContext, Depends(get_staff_context)]
@@ -78,7 +84,7 @@ class MemberContext:
     member_id: str
 
 
-def get_member_context(request: Request) -> MemberContext:
+def get_member_context(request: Request, db: DbDep) -> MemberContext:
     token = _extract_bearer(request)
     if not token:
         raise unauthorized("Token no proporcionado")
@@ -91,7 +97,15 @@ def get_member_context(request: Request) -> MemberContext:
     if payload.get("scope") != "member":
         raise unauthorized("Token inválido")
 
-    return MemberContext(member_id=payload["memberId"])
+    member = db.get(models.Member, payload.get("memberId"))
+    if (
+        not member
+        or member.status != "ACTIVE"
+        or payload.get("tv", 0) != (member.tokenVersion or 0)
+    ):
+        raise unauthorized("Sesión inválida o revocada")
+
+    return MemberContext(member_id=member.id)
 
 
 MemberDep = Annotated[MemberContext, Depends(get_member_context)]

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from .. import models, serializers
 from ..deps import DbDep, StaffContext, require_roles
@@ -44,7 +45,14 @@ def create(dto: CreateEnrollmentDto, db: DbDep, ctx: StaffContext = Roles):
         status="ACTIVE",
     )
     db.add(enrollment)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # uq_inscripciones_activa: otra request lo inscribió al mismo tiempo
+        db.rollback()
+        raise conflict(
+            f"El socio ya está inscripto en {category.discipline.name} - {category.name}"
+        )
     db.refresh(enrollment)
     return serializers.enrollment_full(enrollment)
 

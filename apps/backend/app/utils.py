@@ -1,5 +1,5 @@
 """Utilidades de parseo de fechas (equivalente a new Date(str) en JS) y numeración."""
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.orm import Session
@@ -17,8 +17,14 @@ def parse_datetime(value: str) -> datetime:
     except ValueError:
         raise bad_request(f"Fecha inválida: {value}")
     if dt.tzinfo is not None:
-        dt = dt.astimezone(tz=None).replace(tzinfo=None)
+        # En la base todo va en UTC naive (antes convertía a la hora del servidor)
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
+
+
+def is_date_only(value: str) -> bool:
+    """"2026-09-23" (sin hora), como manda un <input type="date">."""
+    return len(value.strip()) == 10
 
 
 def parse_date(value: str) -> date:

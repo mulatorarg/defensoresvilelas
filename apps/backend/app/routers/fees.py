@@ -2,11 +2,13 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from .. import models, serializers
+from ..audit import audit
 from ..deps import DbDep, StaffContext, require_roles
-from ..errors import bad_request, not_found
+from ..errors import bad_request, conflict, not_found
 from ..ids import new_id
 from ..schemas import GenerateFeesDto
 from ..utils import parse_datetime
@@ -107,7 +109,22 @@ def generate(dto: GenerateFeesDto, db: DbDep, ctx: StaffContext = Roles):
                 status="PENDING",
             )
         )
-    db.commit()
+    audit(db, ctx, "GENERATE", "fee", None, {
+        "period": dto.period,
+        "feeTypeId": dto.feeTypeId,
+        "categoryId": category.id if category else None,
+        "amount": amount,
+        "created": len(members_to_create),
+    })
+    try:
+        db.commit()
+    except IntegrityError:
+        # uq_cuotas_periodo: otra generación simultánea (doble clic) ya las creó
+        db.rollback()
+        raise conflict(
+            "Las cuotas de este período se generaron en paralelo desde otra pestaña o "
+            "usuario. Actualizá el listado para verlas."
+        )
 
     return {"created": len(members_to_create), "skipped": len(existing_member_ids)}
 

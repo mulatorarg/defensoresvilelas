@@ -9,6 +9,7 @@ import {
   getPublicClub,
 } from '../lib/api';
 import RegistroSocio from './RegistroSocio';
+import { formatDate } from '../lib/dates';
 
 interface PublicTenant {
   name: string;
@@ -100,12 +101,8 @@ const gradientBg = {
     'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
 };
 
-function formatDate(iso?: string | null) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('es-AR', {
-    day: 'numeric',
-    month: 'long',
-  });
+function formatNewsDate(iso?: string | null) {
+  return formatDate(iso, { day: 'numeric', month: 'long' });
 }
 
 function ageLabel(cat: PublicCategory) {
@@ -482,7 +479,6 @@ export default function HomePage() {
             <SectionHeader index="02" title="Agenda" subtitle="Lo que se viene en el club" />
             <div className="grid gap-4 md:grid-cols-2">
               {events.map((e, i) => {
-                const date = new Date(e.eventDate);
                 return (
                   <article
                     key={e.id}
@@ -494,12 +490,10 @@ export default function HomePage() {
                       style={gradientBg}
                     >
                       <span className="font-display text-2xl font-extrabold leading-none">
-                        {date.getDate()}
+                        {formatDate(e.eventDate, { day: 'numeric' })}
                       </span>
                       <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest">
-                        {date
-                          .toLocaleDateString('es-AR', { month: 'short' })
-                          .replace('.', '')}
+                        {formatDate(e.eventDate, { month: 'short' }).replace('.', '')}
                       </span>
                     </div>
                     <div className="min-w-0">
@@ -541,7 +535,7 @@ export default function HomePage() {
                   />
                   <div className="absolute inset-0 bg-linear-to-t from-[#0a0d18]/70 to-transparent" />
                   <span className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/90 backdrop-blur">
-                    {formatDate(n.publishedAt)}
+                    {formatNewsDate(n.publishedAt)}
                   </span>
                 </div>
                 <div className="flex flex-1 flex-col p-6">

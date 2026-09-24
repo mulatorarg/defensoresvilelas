@@ -4,22 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getDashboardSummary } from '@/lib/api';
 import { useStoredUser } from '@/lib/auth';
+import { formatDate } from '@/lib/dates';
+import { formatMoney as formatMoneyBase, type Money } from '@/lib/money';
+import type { DashboardSummary as Summary } from '@/lib/types';
 
-interface Summary {
-  activeMembers: number;
-  totalMembers: number;
-  feesThisMonth: number;
-  collectedThisMonth: number;
-  incomeThisMonth: number;
-  expenseThisMonth: number;
-}
-
-const formatMoney = (value: number) =>
-  value.toLocaleString('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    maximumFractionDigits: 0,
-  });
+const formatMoney = (value: Money) => formatMoneyBase(value, { decimals: 0 });
 
 function StatCard({
   label,
@@ -84,16 +73,9 @@ export default function AdminPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const today = new Date().toLocaleDateString('es-AR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
+  const today = formatDate(new Date(), { weekday: 'long', day: 'numeric', month: 'long' });
 
-  const balance =
-    (summary?.incomeThisMonth ?? 0) +
-    (summary?.collectedThisMonth ?? 0) -
-    (summary?.expenseThisMonth ?? 0);
+  const balance = summary?.balanceThisMonth ?? 0;
 
   return (
     <div className="mx-auto max-w-6xl">

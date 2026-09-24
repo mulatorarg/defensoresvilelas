@@ -3,6 +3,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from .. import models, serializers
+from ..audit import audit
 from ..deps import DbDep, StaffContext, require_roles
 from ..errors import conflict, not_found
 from ..ids import new_id
@@ -73,6 +74,7 @@ def create(dto: CreateMemberDto, db: DbDep, ctx: StaffContext = WriteRoles):
     if dto.playerProfile:
         _apply_player_profile(member, dto.playerProfile)
 
+    audit(db, ctx, "UPDATE", "member", member.id, sorted(dto.model_fields_set))
     db.commit()
     db.refresh(member)
     return serializers.member_full(member)
@@ -163,6 +165,7 @@ def update(member_id: str, dto: UpdateMemberDto, db: DbDep, ctx: StaffContext = 
     if dto.playerProfile:
         _apply_player_profile(member, dto.playerProfile)
 
+    audit(db, ctx, "UPDATE", "member", member.id, sorted(dto.model_fields_set))
     db.commit()
     db.refresh(member)
     return serializers.member_full(member)
@@ -173,6 +176,20 @@ def remove(member_id: str, db: DbDep, ctx: StaffContext = WriteRoles):
     member = _get_member(db, member_id)
     # Baja lógica; los pagos quedan asociados al historial.
     member.status = "INACTIVE"
+    audit(db, ctx, "DEACTIVATE", "member", member.id)
     db.commit()
     db.refresh(member)
     return serializers.member_full(member)
+
+
+@router.post("/{member_id}/reset-pin")
+def reset_pin(member_id: str, db: DbDep, ctx: StaffContext = WriteRoles):
+    """Blanquea el PIN del portal: el socio define uno nuevo en su próximo ingreso."""
+    member = _get_member(db, member_id)
+    member.pinHash = None
+    member.pinFailedAttempts = 0
+    member.pinLockedUntil = None
+    member.tokenVersion = (member.tokenVersion or 0) + 1  # cierra sus sesiones abiertas
+    audit(db, ctx, "RESET_PIN", "member", member.id)
+    db.commit()
+    return {"ok": True}

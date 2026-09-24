@@ -30,6 +30,32 @@ MERCADO_PAGO_ACCESS_TOKEN = os.getenv("MERCADO_PAGO_ACCESS_TOKEN")
 MERCADO_PAGO_WEBHOOK_SECRET = os.getenv("MERCADO_PAGO_WEBHOOK_SECRET")
 PORT = int(os.getenv("PORT", "3001"))
 
+# Clave Fernet para cifrar secretos en la base (ver crypto.py). Opcional.
+SECRETS_KEY = (os.getenv("SECRETS_KEY") or "").strip() or None
+
+def _club_timezone() -> str:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    name = (os.getenv("CLUB_TIMEZONE") or "America/Argentina/Buenos_Aires").strip()
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise RuntimeError(f"CLUB_TIMEZONE inválida: {name!r} (usar un nombre IANA)")
+    return name
+
+
+# Zona horaria del club para "hoy", el mes corriente y el cierre de caja (ver clock.py)
+CLUB_TIMEZONE = _club_timezone()
+
+# Observabilidad (ver observability.py)
+APP_ENV = os.getenv("APP_ENV", "development")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+SENTRY_DSN = (os.getenv("SENTRY_DSN") or "").strip() or None
+SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0") or 0)
+
+# /api/docs y /api/openapi.json (desactivar en producción con ENABLE_DOCS=0)
+ENABLE_DOCS = os.getenv("ENABLE_DOCS", "1").strip().lower() not in ("0", "false", "no", "")
+
 FRONTEND_DIST_PATH = os.getenv(
     "FRONTEND_DIST_PATH",
     str(ROOT_DIR / "apps" / "frontend" / "dist"),
@@ -41,3 +67,7 @@ RECURSOS_DIR = os.getenv("RECURSOS_DIR", str(ROOT_DIR / "recursos"))
 
 JWT_EXPIRES_DAYS = 7
 QR_EXPIRES_MINUTES = 5
+
+# PIN del portal del socio: bloqueo temporal tras varios intentos fallidos
+PIN_MAX_ATTEMPTS = 5
+PIN_LOCK_MINUTES = 15
