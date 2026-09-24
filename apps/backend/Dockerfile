@@ -2,7 +2,7 @@
 # Build context: raíz del monorepo (ver docker-compose.yml)
 
 # --- Etapa 1: build del frontend (export estático) ---
-FROM node:24-alpine AS frontend
+FROM node:25-alpine AS frontend
 WORKDIR /build
 COPY apps/frontend ./
 RUN npm ci
